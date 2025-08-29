@@ -26,6 +26,50 @@ def make_toc(toc: list, href2id: dict, level=0):
     return f'\n{indent}<ul>\n{lst}{indent}</ul>\n'
 
 
+def process_images(soup, img_tags):
+    """
+    处理 HTML 中的所有图片标签（`img`）。
+    - 替换 `src` 属性。
+    - 根据是否有 `class` 属性来设置 `style`。
+    """
+    for img_element in soup.find_all("img"):
+        img_element['src'] = img_tags[os.path.basename(img_element['src'])]
+
+        if img_element['class'] is not None:
+            img_element['style'] = ""
+        else:
+            img_element['style'] = "width: auto; max-width: 100%; height: auto;"
+
+
+def process_ids(soup, item_id):
+    """
+    为 HTML 中所有带有 `id` 属性的元素添加前缀，以确保 ID 的唯一性。
+    """
+    for id_element in soup.css.select('*[id]'):
+        id_element['id'] = f"{item_id}_{id_element['id']}"
+
+
+def process_hrefs(soup, href2id):
+    """
+    处理 HTML 中的所有链接（`href`）属性，将其转换为内部锚点链接。
+    - 如果链接包含 `#`，则处理锚点。
+    - 如果链接是文件路径，则转换为相应的 ID。
+    """
+    for href_element in soup.css.select('*[href]'):
+        href = href_element['href']
+
+        if '#' in href:
+            href, anchor = href.split('#')
+            href_element['href'] = '#' \
+                + ( href2id.get(href, None) \
+                   or href2id.get(os.path.basename(href), None) or href ) \
+                + "_" + anchor
+        elif (href in href2id) or (os.path.basename(href) in href2id):
+            href_element['href'] = '#' \
+                + ( href2id.get(href, None) \
+                    or href2id.get(os.path.basename(href), None) )
+
+
 def epub_to_html(epub_path, html_path):
     book: epub.EpubBook = epub.read_epub(epub_path)
 
@@ -58,31 +102,9 @@ def epub_to_html(epub_path, html_path):
         content = item.get_body_content().decode("utf-8")
         soup = BeautifulSoup(content, "html.parser")
 
-        # 替换 img
-        for img_element in soup.find_all("img"):
-            img_element['src'] = img_tags[os.path.basename(img_element['src'])]
-            if img_element['class'] is not None:
-                img_element['style'] = ""
-            else:
-                img_element['style'] = "width: auto; max-width: 100%; height: auto;"
-
-        # 替换 href
-        for id_element in soup.css.select('*[id]'):
-            id_element['id'] = item_id + '_' + id_element['id']
-
-        for href_element in soup.css.select('*[href]'):
-            href = href_element['href']
-
-            if '#' in href:
-                href, anchor = href.split('#')
-                href_element['href'] = '#' \
-                    + ( href2id.get(href, None) \
-                       or href2id.get(os.path.basename(href), None) or href ) \
-                    + "_" + anchor
-            elif (href in href2id) or (os.path.basename(href) in href2id):
-                href_element['href'] = '#' \
-                    + ( href2id.get(href, None) \
-                        or href2id.get(os.path.basename(href), None) )
+        process_images(soup, img_tags)
+        process_ids(soup, item_id)
+        process_hrefs(soup, href2id)
 
         # 添加目录锚点
         book_content += f'<a id="{item_id}" href="#toc_{item_id}"></a>{soup.prettify()}'
