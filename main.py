@@ -35,6 +35,9 @@ def process_images(soup, img_tags):
     for img_element in soup.find_all("img"):
         img_element['src'] = img_tags[os.path.basename(img_element['src'])]
 
+        if img_element['class'] is not None and img_element.parent['class'] is not None:
+            img_element['style'] = ""
+            img_element.parent['style'] = "max-height: none"
         if img_element['class'] is not None:
             img_element['style'] = ""
         else:
