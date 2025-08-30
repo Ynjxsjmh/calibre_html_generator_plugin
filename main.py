@@ -52,7 +52,7 @@ def process_ids(soup, item_id):
         id_element['id'] = f"{item_id}_{id_element['id']}"
 
 
-def process_hrefs(soup, href2id):
+def process_hrefs(soup, href2id, item_id):
     """
     处理 HTML 中的所有链接（`href`）属性，将其转换为内部锚点链接。
     - 如果链接包含 `#`，则处理锚点。
@@ -63,10 +63,13 @@ def process_hrefs(soup, href2id):
 
         if '#' in href:
             href, anchor = href.split('#')
-            href_element['href'] = '#' \
-                + ( href2id.get(href, None) \
-                   or href2id.get(os.path.basename(href), None) or href ) \
-                + "_" + anchor
+            if len(href) == 0:
+                href_element['href'] = f'#{item_id}_{anchor}'
+            else:
+                href_element['href'] = '#' \
+                    + ( href2id.get(href, None) \
+                       or href2id.get(os.path.basename(href), None) or href ) \
+                    + "_" + anchor
         elif (href in href2id) or (os.path.basename(href) in href2id):
             href_element['href'] = '#' \
                 + ( href2id.get(href, None) \
@@ -107,7 +110,7 @@ def epub_to_html(epub_path, html_path):
 
         process_images(soup, img_tags)
         process_ids(soup, item_id)
-        process_hrefs(soup, href2id)
+        process_hrefs(soup, href2id, item_id)
 
         # 添加目录锚点
         book_content += f'<a id="{item_id}" href="#toc_{item_id}"></a>{soup.prettify()}'
