@@ -13,13 +13,13 @@ def make_toc(toc: list, href2id: dict, level=0):
     indent = '  ' * level
     for link in toc:
         if isinstance(link, epub.Link):
-            href = href2id[link.href]
+            href = href2id[link.href.split('#')[0]]
             item = f'{indent}<li><a id="toc_{href}" href="#{href}">{link.title}</a></li>'
-            print(' '*level, link.title, href2id[link.href])
+            print(' '*level, link.title, href)
         elif isinstance(link, tuple):
             section, sub_toc = link
-            href = href2id[section.href]
-            print(' '*level, section.title, href2id[section.href])
+            href = href2id[section.href.split('#')[0]]
+            print(' '*level, section.title, href)
             sub_item = make_toc(sub_toc, href2id, level+1)
             item = f'{indent}<li><a id="toc_{href}" href="#{href}">{section.title}</a>{sub_item}</li>'
         lst += indent + item + '\n'
