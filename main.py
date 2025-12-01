@@ -79,6 +79,7 @@ def process_hrefs(soup, href2id, item_id):
 def epub_to_html(epub_path, html_path):
     book: epub.EpubBook = epub.read_epub(epub_path)
 
+    # html中所有的 href 属性的唯一标识
     href2id = {item.get_name(): item.get_id() for item in book.get_items()} \
         | {os.path.basename(item.get_name()): item.get_id() for item in book.get_items()}
     book_toc = make_toc(book.toc, href2id)
@@ -88,12 +89,17 @@ def epub_to_html(epub_path, html_path):
     js_content = ""
     for item in book.get_items():
         item_type = item.get_type()
-        if item_type == ebooklib.ITEM_IMAGE:
+        item_name = item.get_name()
+        if item_type == ebooklib.ITEM_IMAGE or item_type == ebooklib.ITEM_COVER:
+            if not item_name.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.gif')):
+                print(f'{item_name} seems not like image')
+                continue
             img_data = base64.b64encode(item.get_content()).decode("utf-8")
             img_base64_data = f'data:image/{item.media_type.split("/")[-1]};base64,{img_data}'
-            img_href = item.get_name()
-            img_tags[img_href] = img_base64_data
-            img_tags[os.path.basename(img_href)] = img_base64_data
+            img_href = item_name
+            if img_href not in img_tags:
+                img_tags[img_href] = img_base64_data
+                img_tags[os.path.basename(img_href)] = img_base64_data
         elif item_type == ebooklib.ITEM_STYLE:
             css_content += item.get_content().decode('utf-8') + '\n'
         elif item_type == ebooklib.ITEM_SCRIPT:
