@@ -8,22 +8,40 @@ from ebooklib import epub
 from bs4 import BeautifulSoup
 
 
-def make_toc(toc: list, href2id: dict, level=0):
+def make_toc(book: epub.EpubBook, toc: list, href2id: dict, level=0):
     lst = ''
     indent = '  ' * level
     for link in toc:
         if isinstance(link, epub.Link):
-            href = href2id[link.href.split('#')[0]]
+            href = process_toc_link(book, href2id, link)
             item = f'{indent}<li><a id="toc_{href}" href="#{href}">{link.title}</a></li>'
             print(' '*level, link.title, href)
         elif isinstance(link, tuple):
             section, sub_toc = link
-            href = href2id[section.href.split('#')[0]]
+            href = process_toc_link(book, href2id, section)
             print(' '*level, section.title, href)
-            sub_item = make_toc(sub_toc, href2id, level+1)
+            sub_item = make_toc(book, sub_toc, href2id, level+1)
             item = f'{indent}<li><a id="toc_{href}" href="#{href}">{section.title}</a>{sub_item}</li>'
         lst += indent + item + '\n'
     return f'\n{indent}<ul>\n{lst}{indent}</ul>\n'
+
+
+def process_toc_link(book: epub.EpubBook, href2id: dict, link: epub.Link):
+    href, _, anchor = link.href.partition('#')
+    item_id = href2id[href]
+    section = book.get_item_with_id(item_id)
+    soup = BeautifulSoup(section.content, "html.parser")
+    anchor_element = soup.find(id=f"{anchor}")
+
+    if len(anchor) == 0 or anchor_element.name == 'body':
+        # 处理 src="OEBPS/Text/05_Dedication.xhtml" 这种情况
+        jump_to_id = item_id
+    else:
+        # 处理 src="text/part0001.html#filepos14956" 这种情况
+        # filepos14956 可能是 body 的 id
+        jump_to_id = f"{item_id}_{anchor}"
+
+    return jump_to_id
 
 
 def process_images(soup, img_tags):
