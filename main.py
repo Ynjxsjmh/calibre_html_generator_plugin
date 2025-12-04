@@ -73,8 +73,11 @@ def process_ids(soup, item_id):
 def process_hrefs(soup, href2id, item_id):
     """
     处理 HTML 中的所有链接（`href`）属性，将其转换为内部锚点链接。
-    - 如果链接包含 `#`，则处理锚点。
+    - 如果链接包含 `#`，则处理锚点使其和 process_id 一致。
     - 如果链接是文件路径，则转换为相应的 ID。
+      比如 href="text/part0001.html#filepos17362"中"text/part0001.html"是 manifest 的 item
+      获取其 item_id 变成"#{item_id}_filepos17362"
+    - 如果链接是网址，则default不做处理
     """
     for href_element in soup.css.select('*[href]'):
         href = href_element['href']
@@ -137,7 +140,9 @@ def epub_to_html(epub_path, html_path):
         process_hrefs(soup, href2id, item_id)
 
         # 添加目录锚点
-        book_content += f'<a id="{item_id}" href="#toc_{item_id}"></a>{soup.prettify()}'
+        book_content += f'<a id="{item_id}" href="#{item_id}">#</a>'
+        book_content += f'<a id="{item_id}" href="#toc_{item_id}">↩</a>'
+        book_content += soup.prettify()
 
     html_content = css_content + '\n' + book_toc + '\n' + book_content + '\n' + js_content
     with open(html_path, "w", encoding="utf-8") as html_file:
