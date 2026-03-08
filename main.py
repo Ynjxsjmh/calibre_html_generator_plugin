@@ -155,7 +155,63 @@ def epub_to_html(epub_path, html_path):
     if body is not None:
         body["style"] = "text-align: left;"
 
+    # Optional: semantic sentence alignment for `.et-src/.et-tr` within the same `et-pair-xxx` paragraph pair.
+    # Requires `sentence-transformers` to be installed; otherwise this step is skipped.
+    if align_et_pairs_in_soup is not None and soup.select_one('.et-src') and soup.select_one('.et-tr'):
+        try:
+            # You can override the default model by setting:
+            # - ET_SENTENCE_ALIGN_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+            # - or a local folder path that contains a downloaded HF model
+            model_override = os.environ.get("ET_SENTENCE_ALIGN_MODEL")
+            max_group_override = os.environ.get("ET_SENTENCE_ALIGN_MAX_GROUP")
+            max_group = int(max_group_override) if max_group_override else None
+            show_progress = os.environ.get("ET_SENTENCE_ALIGN_PROGRESS", "1") != "0"
+            encode_bs_override = os.environ.get("ET_SENTENCE_ALIGN_ENCODE_BATCH_SIZE")
+            chunk_sent_override = os.environ.get("ET_SENTENCE_ALIGN_CHUNK_MAX_SENTENCES")
+            encode_bs = int(encode_bs_override) if encode_bs_override else None
+            chunk_max_sentences = int(chunk_sent_override) if chunk_sent_override else None
+            if model_override:
+                if max_group is not None:
+                    aligned_pairs = align_et_pairs_in_soup(
+                        soup,
+                        model_name=model_override,
+                        max_group=max_group,
+                        show_progress=show_progress,
+                        encode_batch_size=encode_bs or 64,
+                        chunk_max_sentences=chunk_max_sentences or 2048,
+                    )
+                else:
+                    aligned_pairs = align_et_pairs_in_soup(
+                        soup,
+                        model_name=model_override,
+                        show_progress=show_progress,
+                        encode_batch_size=encode_bs or 64,
+                        chunk_max_sentences=chunk_max_sentences or 2048,
+                    )
+            else:
+                if max_group is not None:
+                    aligned_pairs = align_et_pairs_in_soup(
+                        soup,
+                        max_group=max_group,
+                        show_progress=show_progress,
+                        encode_batch_size=encode_bs or 64,
+                        chunk_max_sentences=chunk_max_sentences or 2048,
+                    )
+                else:
+                    aligned_pairs = align_et_pairs_in_soup(
+                        soup,
+                        show_progress=show_progress,
+                        encode_batch_size=encode_bs or 64,
+                        chunk_max_sentences=chunk_max_sentences or 2048,
+                    )
+            print(f"Aligned {aligned_pairs} bilingual paragraph pair(s).")
+        except Exception as exc:
+            print(f"Sentence alignment skipped: {exc}")
+
     html_content = soup.prettify()
+
+    # Enable click-to-highlight for `.et-src/.et-tr` pairs (shared `et-pair-xxx` class).
+    html_content = inject_et_pair_highlight(html_content)
 
     with open(html_path, "w", encoding="utf-8") as html_file:
         html_file.write(html_content)
