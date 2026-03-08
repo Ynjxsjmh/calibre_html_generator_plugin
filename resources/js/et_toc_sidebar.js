@@ -6,8 +6,9 @@
     var SIDEBAR_BODY_ID = 'et-toc-sidebar-body';
     var TOP_ID = 'et-toc-top';
 
-    var EXPANDED_WIDTH = 320;
+    var DEFAULT_WIDTH = 320;
     var COLLAPSED_WIDTH = 34;
+    var MIN_WIDTH = 180;
 
     function onReady(fn) {
         if (document.readyState === 'loading') {
@@ -38,6 +39,19 @@
         var sidebarBody = document.getElementById(SIDEBAR_BODY_ID);
         var collapseBtn = document.getElementById('et-toc-collapse-btn');
         var sideBtn = document.getElementById('et-toc-side-btn');
+        var resizer = document.getElementById('et-toc-resizer');
+
+        if (!resizer) {
+            try {
+                resizer = document.createElement('div');
+                resizer.id = 'et-toc-resizer';
+                resizer.className = 'et-toc-resizer';
+                resizer.setAttribute('aria-hidden', 'true');
+                sidebar.appendChild(resizer);
+            } catch (e0) {
+                // ignore
+            }
+        }
 
         // Capture base margins so we can offset without destroying the ebook CSS spacing.
         var baseML = '0px';
@@ -56,6 +70,12 @@
         var tocDirty = true;
         var activeTocId = null;
         var rafPending = false;
+
+        function clamp(n, lo, hi) {
+            if (n < lo) return lo;
+            if (n > hi) return hi;
+            return n;
+        }
 
         function raf(cb) {
             var fn = window.requestAnimationFrame || function (f) { return setTimeout(f, 16); };
@@ -109,8 +129,22 @@
         }
 
         function getSidebarWidthPx() {
+            try {
+                var w = sidebar.getBoundingClientRect().width;
+                if (w && w > 0) return Math.round(w);
+            } catch (eW) {
+                // ignore
+            }
             var collapsed = sidebar.getAttribute('data-et-toc-state') === 'collapsed';
-            return collapsed ? COLLAPSED_WIDTH : EXPANDED_WIDTH;
+            return collapsed ? COLLAPSED_WIDTH : DEFAULT_WIDTH;
+        }
+
+        function setSidebarWidthPx(px) {
+            try {
+                sidebar.style.setProperty('--et-toc-width', px + 'px');
+            } catch (eS) {
+                // ignore
+            }
         }
 
         function applyBodyOffset() {
@@ -141,6 +175,75 @@
             // Width typically unchanged, but keep the index fresh for safety.
             markTocDirty();
             scheduleActiveUpdate();
+        }
+
+        // Resizable width (mouse drag)
+        if (resizer) {
+            resizer.addEventListener('mousedown', function (e) {
+                try {
+                    if (e && typeof e.button === 'number' && e.button !== 0) return;
+                } catch (ignoreBtn) {
+                    // ignore
+                }
+
+                if (sidebar.getAttribute('data-et-toc-state') === 'collapsed') return;
+
+                var startX = e.clientX;
+                var startWidth = getSidebarWidthPx();
+                var side = sidebar.getAttribute('data-et-toc-side') || 'left';
+
+                var prevUserSelect = '';
+                var prevCursor = '';
+                try {
+                    if (document.body) {
+                        prevUserSelect = document.body.style.userSelect || '';
+                        document.body.style.userSelect = 'none';
+                    }
+                    prevCursor = document.documentElement.style.cursor || '';
+                    document.documentElement.style.cursor = 'ew-resize';
+                } catch (eStyle) {
+                    // ignore
+                }
+
+                function onMove(ev) {
+                    var dx = ev.clientX - startX;
+                    var next = startWidth + (side === 'right' ? -dx : dx);
+
+                    var maxW = Math.floor(window.innerWidth * 0.75);
+                    if (!maxW || maxW < MIN_WIDTH) maxW = MIN_WIDTH;
+                    next = clamp(next, MIN_WIDTH, maxW);
+
+                    setSidebarWidthPx(next);
+                    applyBodyOffset();
+                }
+
+                function onUp() {
+                    try {
+                        window.removeEventListener('mousemove', onMove);
+                        window.removeEventListener('mouseup', onUp);
+                    } catch (eOff) {
+                        // ignore
+                    }
+                    try {
+                        if (document.body) document.body.style.userSelect = prevUserSelect;
+                        document.documentElement.style.cursor = prevCursor;
+                    } catch (eRestore) {
+                        // ignore
+                    }
+
+                    // Resizing can cause reflow (line wrap) so rebuild index once after drag.
+                    markTocDirty();
+                    scheduleActiveUpdate();
+                }
+
+                try {
+                    e.preventDefault();
+                    window.addEventListener('mousemove', onMove);
+                    window.addEventListener('mouseup', onUp);
+                } catch (eBind) {
+                    // ignore
+                }
+            });
         }
 
         function ensureSidebarToc() {

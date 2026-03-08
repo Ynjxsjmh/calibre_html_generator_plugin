@@ -155,6 +155,7 @@ def epub_to_html(epub_path, html_path):
         '    <button type="button" id="et-toc-side-btn" class="et-toc-btn et-toc-side-btn">右侧</button>\n'
         '  </div>\n'
         '  <nav class="et-toc-body" id="et-toc-sidebar-body" aria-label="Table of contents"></nav>\n'
+        '  <div class="et-toc-resizer" id="et-toc-resizer" aria-hidden="true"></div>\n'
         '</aside>\n'
     )
     toc_top = f'\n<div id="et-toc-top">\n{book_toc}\n</div>\n'
