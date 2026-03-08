@@ -16,14 +16,22 @@ SCRIPT_ID = "et-pair-highlight-script"
 
 HIGHLIGHT_CSS = r"""/* et-pair-highlight */
 
-.et-sent {
-    cursor: pointer;
+#et-hl-layer {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+    z-index: 2147483647;
 }
 
-.et-pair-active {
+.et-hl-rect {
+    position: absolute;
     background: rgba(255, 238, 140, 0.65);
     border-radius: 3px;
     box-shadow: inset 0 0 0 1px rgba(180, 140, 0, 0.35);
+    pointer-events: none;
 }
 """
 
@@ -31,9 +39,9 @@ HIGHLIGHT_JS = r"""/* et-pair-highlight */
 (function () {
     'use strict';
 
-    var ACTIVE_CLASS = 'et-pair-active';
     var PAIR_PREFIX = 'et-pair-';
     var ENABLE_SENTENCE_LEVEL = true;
+    var LAYER_ID = 'et-hl-layer';
 
     try {
         if (document.body && document.body.getAttribute('data-et-sentence-level') === '0') {
@@ -41,6 +49,49 @@ HIGHLIGHT_JS = r"""/* et-pair-highlight */
         }
     } catch (e) {
         // ignore
+    }
+
+    var elementCache = new WeakMap();
+    var mapCache = new WeakMap();
+    var active = null; // { host, hostIdx, peer, peerIdx }
+
+    function ensureLayer() {
+        var layer = document.getElementById(LAYER_ID);
+        if (layer) return layer;
+        if (!document.body) return null;
+        layer = document.createElement('div');
+        layer.id = LAYER_ID;
+        document.body.appendChild(layer);
+        return layer;
+    }
+
+    function clearHighlights() {
+        var layer = ensureLayer();
+        if (!layer) return;
+        while (layer.firstChild) layer.removeChild(layer.firstChild);
+        active = null;
+    }
+
+    function addRect(left, top, width, height) {
+        var layer = ensureLayer();
+        if (!layer) return;
+        if (width <= 0 || height <= 0) return;
+        var div = document.createElement('div');
+        div.className = 'et-hl-rect';
+        div.style.left = left + 'px';
+        div.style.top = top + 'px';
+        div.style.width = width + 'px';
+        div.style.height = height + 'px';
+        layer.appendChild(div);
+    }
+
+    function highlightRange(range) {
+        if (!range) return;
+        var rects = range.getClientRects();
+        for (var i = 0; i < rects.length; i++) {
+            var r = rects[i];
+            addRect(r.left + window.scrollX, r.top + window.scrollY, r.width, r.height);
+        }
     }
 
     function findPairClass(el) {
@@ -62,14 +113,6 @@ HIGHLIGHT_JS = r"""/* et-pair-highlight */
         return null;
     }
 
-    function closestSentence(el) {
-        while (el && el.nodeType === 1) {
-            if (el.classList && el.classList.contains('et-sent')) return el;
-            el = el.parentElement;
-        }
-        return null;
-    }
-
     function isWS(ch) {
         return ch && /\s/.test(ch);
     }
@@ -78,46 +121,8 @@ HIGHLIGHT_JS = r"""/* et-pair-highlight */
         return ch && /[A-Za-z0-9]/.test(ch);
     }
 
-    function normalizeTextWithMap(raw) {
-        // Normalize whitespace (\s+ -> single space) and trim, while keeping a mapping
-        // from normalized character index -> raw character index.
-        // This allows us to split sentences on the normalized text but wrap ranges
-        // in the original DOM without destroying markup.
-        raw = raw || '';
-
-        var norm = '';
-        var map = []; // map[normIndex] = rawIndex
-
-        var i = 0;
-        while (i < raw.length && isWS(raw[i])) i++;
-
-        var inWs = false;
-        for (; i < raw.length; i++) {
-            var ch = raw[i];
-            if (isWS(ch)) {
-                if (!inWs) {
-                    norm += ' ';
-                    map.push(i);
-                    inWs = true;
-                }
-            } else {
-                norm += ch;
-                map.push(i);
-                inWs = false;
-            }
-        }
-
-        // Trim trailing single space introduced by normalization.
-        if (norm.length && norm[norm.length - 1] === ' ') {
-            norm = norm.slice(0, -1);
-            map.pop();
-        }
-
-        return { norm: norm, map: map };
-    }
-
     function splitSentenceRanges(text) {
-        // Returns [{s: start, e: end}, ...] in the provided (already-normalized) text.
+        // Returns [{s,e}] in raw-text indices.
         if (!text) return [];
         var out = [];
         var start = 0;
@@ -169,154 +174,225 @@ HIGHLIGHT_JS = r"""/* et-pair-highlight */
             i++;
         }
 
-        if (start < text.length) push(text.length);
+        if (start < text.length) out.push({ s: start, e: text.length });
         return out;
     }
 
-    function locateTextPosition(root, index) {
-        // Find the {node, offset} for a character index within root.textContent.
-        // Includes text inside nested inline elements.
-        var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
-        var remaining = index;
-        var last = null;
-        while (walker.nextNode()) {
-            var n = walker.currentNode;
-            last = n;
-            var v = n.nodeValue || '';
-            var len = v.length;
-            if (remaining <= len) {
-                return { node: n, offset: remaining };
-            }
-            remaining -= len;
+    function getElementData(host) {
+        var cached = elementCache.get(host);
+        if (cached) return cached;
+
+        var walker = document.createTreeWalker(host, NodeFilter.SHOW_TEXT, null, false);
+        var nodes = [];
+        var starts = [];
+        var nodeStart = new Map();
+        var pos = 0;
+        var rawParts = [];
+
+        var n;
+        while ((n = walker.nextNode())) {
+            var t = n.nodeValue || '';
+            starts.push(pos);
+            nodes.push(n);
+            nodeStart.set(n, pos);
+            rawParts.push(t);
+            pos += t.length;
         }
-        if (last) {
+
+        var rawText = rawParts.join('');
+        var ranges = splitSentenceRanges(rawText);
+
+        cached = {
+            nodes: nodes,
+            starts: starts,
+            nodeStart: nodeStart,
+            rawText: rawText,
+            ranges: ranges,
+        };
+        elementCache.set(host, cached);
+        return cached;
+    }
+
+    function findNodeAtOffset(data, offset) {
+        var nodes = data.nodes;
+        var starts = data.starts;
+        if (!nodes.length) return null;
+        if (offset <= 0) return { node: nodes[0], offset: 0 };
+
+        var totalLen = data.rawText.length;
+        if (offset >= totalLen) {
+            var last = nodes[nodes.length - 1];
             return { node: last, offset: (last.nodeValue || '').length };
         }
+
+        // Binary search for last starts[i] <= offset
+        var lo = 0;
+        var hi = starts.length - 1;
+        var ans = 0;
+        while (lo <= hi) {
+            var mid = (lo + hi) >> 1;
+            if (starts[mid] <= offset) {
+                ans = mid;
+                lo = mid + 1;
+            } else {
+                hi = mid - 1;
+            }
+        }
+
+        var node = nodes[ans];
+        var inner = offset - starts[ans];
+        var len = (node.nodeValue || '').length;
+        if (inner < 0) inner = 0;
+        if (inner > len) inner = len;
+        return { node: node, offset: inner };
+    }
+
+    function makeDomRange(host, sentIdx) {
+        var data = getElementData(host);
+        if (!data.ranges.length) return null;
+        if (sentIdx < 0) sentIdx = 0;
+        if (sentIdx > data.ranges.length - 1) sentIdx = data.ranges.length - 1;
+
+        var seg = data.ranges[sentIdx];
+        var startPos = findNodeAtOffset(data, seg.s);
+        var endPos = findNodeAtOffset(data, seg.e);
+        if (!startPos || !endPos) return null;
+
+        var r = document.createRange();
+        r.setStart(startPos.node, startPos.offset);
+        r.setEnd(endPos.node, endPos.offset);
+        return r;
+    }
+
+    function findSentenceIndex(host, textNode, offsetInNode) {
+        var data = getElementData(host);
+        if (!data.nodes.length || !data.ranges.length) return null;
+        var base = data.nodeStart.get(textNode);
+        if (base === undefined || base === null) return null;
+        var rawOffset = base + offsetInNode;
+
+        // Linear scan is fine for typical paragraph sizes.
+        for (var i = 0; i < data.ranges.length; i++) {
+            var seg = data.ranges[i];
+            if (rawOffset >= seg.s && rawOffset < seg.e) return i;
+        }
+        // If at the very end, attach to last.
+        if (rawOffset >= data.rawText.length) return data.ranges.length - 1;
         return null;
     }
 
-    function wrapRawRangeWithSpan(root, rawStart, rawEnd, sentIndex) {
-        if (!root) return false;
-        if (rawEnd <= rawStart) return false;
+    function getCaretTextPosition(ev, host) {
+        var x = ev.clientX;
+        var y = ev.clientY;
+        var node = null;
+        var offset = 0;
 
-        var startPos = locateTextPosition(root, rawStart);
-        var endPos = locateTextPosition(root, rawEnd);
-        if (!startPos || !endPos) return false;
-
-        try {
-            var range = document.createRange();
-            range.setStart(startPos.node, startPos.offset);
-            range.setEnd(endPos.node, endPos.offset);
-            if (range.collapsed) return false;
-
-            var frag = range.extractContents();
-            var span = document.createElement('span');
-            span.className = 'et-sent';
-            span.setAttribute('data-et-sent', String(sentIndex));
-            span.appendChild(frag);
-            range.insertNode(span);
-            return true;
-        } catch (e) {
-            return false;
+        if (document.caretPositionFromPoint) {
+            var pos = document.caretPositionFromPoint(x, y);
+            if (pos) {
+                node = pos.offsetNode;
+                offset = pos.offset;
+            }
+        } else if (document.caretRangeFromPoint) {
+            var range = document.caretRangeFromPoint(x, y);
+            if (range) {
+                node = range.startContainer;
+                offset = range.startOffset;
+            }
         }
+
+        if (!node) return null;
+
+        // If it's an element node, try to find a nearby text node.
+        if (node.nodeType === 1) {
+            var el = node;
+            var child = el.childNodes && el.childNodes[offset] ? el.childNodes[offset] : null;
+            if (child && child.nodeType === 3) {
+                node = child;
+                offset = 0;
+            } else if (child && child.nodeType === 1) {
+                // Find first text node inside child.
+                var w = document.createTreeWalker(child, NodeFilter.SHOW_TEXT, null, false);
+                var tn = w.nextNode();
+                if (tn) {
+                    node = tn;
+                    offset = 0;
+                }
+            }
+        }
+
+        if (node.nodeType !== 3) return null;
+        if (!host.contains(node)) return null;
+        return { node: node, offset: offset };
     }
 
-    function sentenceizeBlockPreserveMarkup(blockEl, startIndex) {
-        // Wrap sentences inside a leaf block element (e.g. <p>) without losing inline markup (<a>, <i>, <sup>...).
-        // Returns the next global sentence index.
-        if (!blockEl) return startIndex;
-        if (blockEl.querySelector && blockEl.querySelector('.et-sent')) return startIndex;
-
-        var raw = blockEl.textContent || '';
-        var normInfo = normalizeTextWithMap(raw);
-        var norm = normInfo.norm;
-        if (!norm) return startIndex;
-
-        var ranges = splitSentenceRanges(norm);
-        if (!ranges.length) return startIndex;
-
-        // Convert normalized ranges to raw ranges.
-        var rawRanges = [];
-        for (var i = 0; i < ranges.length; i++) {
-            var r = ranges[i];
-            if (r.e <= r.s) continue;
-            var rawStart = normInfo.map[r.s];
-            var lastRaw = normInfo.map[r.e - 1];
-            if (rawStart === undefined || lastRaw === undefined) continue;
-            // Do NOT extend to trailing whitespace.
-            // Extending can cross element boundaries (e.g., <a> followed by indentation text nodes)
-            // and may leave behind empty elements after Range.extractContents().
-            var rawEnd = lastRaw + 1;
-            rawRanges.push({ s: rawStart, e: rawEnd });
-        }
-
-        if (!rawRanges.length) {
-            // Fallback: wrap whole block.
-            var wholeWrapped = wrapRawRangeWithSpan(blockEl, 0, raw.length, startIndex);
-            return wholeWrapped ? (startIndex + 1) : startIndex;
-        }
-
-        // Wrap from end to start so earlier indices remain stable.
-        var ok = true;
-        for (var j = rawRanges.length - 1; j >= 0; j--) {
-            var rr = rawRanges[j];
-            var wrapped = wrapRawRangeWithSpan(blockEl, rr.s, rr.e, startIndex + j);
-            if (!wrapped) ok = false;
-        }
-
-        if (!ok) {
-            // If we partially failed, don't leave the block half-wrapped; best-effort fallback
-            // is to just wrap the whole block as a single sentence.
-            // (We avoid attempting a complex rollback here.)
-        }
-
-        return startIndex + rawRanges.length;
+    function mapIndex(fromIndex, fromCount, toCount) {
+        if (!toCount || toCount <= 0) return null;
+        if (!fromCount || fromCount <= 1 || toCount <= 1) return 0;
+        var mapped = Math.round(fromIndex * (toCount - 1) / (fromCount - 1));
+        if (mapped < 0) mapped = 0;
+        if (mapped > toCount - 1) mapped = toCount - 1;
+        return mapped;
     }
 
-    function getSentenceTargets(host) {
-        // Strategy:
-        // - If host itself is a leaf block (no nested block descendants), sentenceize host.
-        // - Otherwise, sentenceize leaf block descendants (typically <p> inside <li>/<ol>).
-        // This prevents invalid HTML like putting <span> directly under <ol> and avoids
-        // wrapping ranges across block boundaries.
-        var BLOCK_SELECTOR = 'p,li,dt,dd,blockquote,pre,th,td,h1,h2,h3,h4,h5,h6,div';
-        var targets = [];
-
-        if (!host || !host.querySelector) return targets;
-
-        if (host.matches && host.matches(BLOCK_SELECTOR) && !host.querySelector(BLOCK_SELECTOR)) {
-            targets.push(host);
-            return targets;
+    function parseMap(host) {
+        var cached = mapCache.get(host);
+        if (cached) return cached;
+        var mapAttr = host.getAttribute('data-et-map');
+        if (!mapAttr) {
+            mapCache.set(host, null);
+            return null;
         }
-
-        var nodes = host.querySelectorAll(BLOCK_SELECTOR);
-        for (var i = 0; i < nodes.length; i++) {
-            var el = nodes[i];
-            if (!el || !el.querySelector) continue;
-            if (el.querySelector(BLOCK_SELECTOR)) continue; // not a leaf block
-            targets.push(el);
+        var parts = mapAttr.split(',');
+        var arr = [];
+        for (var i = 0; i < parts.length; i++) {
+            var v = parseInt(parts[i], 10);
+            arr.push(isNaN(v) ? 0 : v);
         }
-
-        if (!targets.length) targets.push(host);
-        return targets;
+        mapCache.set(host, arr);
+        return arr;
     }
 
-    function sentenceizeHost(host) {
-        if (!host) return;
-        if (host.querySelector && host.querySelector('.et-sent')) return;
+    function getMappedSentenceIndex(host, hostIdx, peerCount) {
+        var data = getElementData(host);
+        var hostCount = data.ranges.length;
 
-        var targets = getSentenceTargets(host);
-        var idx = 0;
-        for (var i = 0; i < targets.length; i++) {
-            idx = sentenceizeBlockPreserveMarkup(targets[i], idx);
+        var mapArr = parseMap(host);
+        if (mapArr) {
+            var expected = host.getAttribute('data-et-sent-count');
+            var expectedN = expected ? parseInt(expected, 10) : null;
+            if ((!expectedN || expectedN === hostCount) && mapArr.length === hostCount) {
+                var mapped = mapArr[hostIdx];
+                if (mapped < 0) mapped = 0;
+                if (mapped > peerCount - 1) mapped = peerCount - 1;
+                return mapped;
+            }
         }
 
-        if (!host.getAttribute('data-et-sent-count')) {
-            host.setAttribute('data-et-sent-count', String(idx));
-        }
+        return mapIndex(hostIdx, hostCount, peerCount);
     }
 
-    function ensureUidsAndSentenceize() {
+    function getUid(host) {
+        if (!host || !host.getAttribute) return null;
+        return host.getAttribute('data-et-uid');
+    }
+
+    function cssEscape(cls) {
+        if (window.CSS && typeof window.CSS.escape === 'function') return window.CSS.escape(cls);
+        return cls.replace(/[^a-zA-Z0-9_-]/g, '\\$&');
+    }
+
+    function findCounterpart(host, pairClass) {
+        var want = host.classList.contains('et-src') ? 'et-tr' : 'et-src';
+        var uid = getUid(host);
+        if (uid) {
+            return document.querySelector('.' + want + '[data-et-uid="' + uid + '"]');
+        }
+        if (!pairClass) return null;
+        return document.querySelector('.' + want + '.' + cssEscape(pairClass));
+    }
+
+    function ensureUids() {
         var nodes = document.querySelectorAll('.et-src, .et-tr');
         var pendingSrc = Object.create(null);
         var pendingTr = Object.create(null);
@@ -327,26 +403,22 @@ HIGHLIGHT_JS = r"""/* et-pair-highlight */
             return map[key];
         }
 
+        function newUid() {
+            uidCounter += 1;
+            return 'js_' + String(uidCounter);
+        }
+
         function pairUp(srcEl, trEl) {
             var existing = srcEl.getAttribute('data-et-uid') || trEl.getAttribute('data-et-uid');
-            if (!existing) {
-                uidCounter += 1;
-                existing = String(uidCounter);
-            }
+            if (!existing) existing = newUid();
             srcEl.setAttribute('data-et-uid', existing);
             trEl.setAttribute('data-et-uid', existing);
-
-            sentenceizeHost(srcEl);
-            sentenceizeHost(trEl);
         }
 
         for (var i = 0; i < nodes.length; i++) {
             var el = nodes[i];
             var pairClass = findPairClass(el);
             if (!pairClass) continue;
-
-            // Always sentence-split (without losing markup), even if pairing fails.
-            sentenceizeHost(el);
 
             if (el.classList.contains('et-src')) {
                 var trQ = pendingTr[pairClass];
@@ -367,7 +439,12 @@ HIGHLIGHT_JS = r"""/* et-pair-highlight */
     }
 
     function init() {
-        if (ENABLE_SENTENCE_LEVEL) ensureUidsAndSentenceize();
+        if (!ENABLE_SENTENCE_LEVEL) return;
+        ensureUids();
+        // If the window is resized, cached client rects become stale; simplest is to clear.
+        window.addEventListener('resize', function () {
+            clearHighlights();
+        }, false);
     }
 
     if (document.readyState === 'loading') {
@@ -376,129 +453,42 @@ HIGHLIGHT_JS = r"""/* et-pair-highlight */
         init();
     }
 
-    function clearActive() {
-        var active = document.querySelectorAll('.' + ACTIVE_CLASS);
-        for (var i = 0; i < active.length; i++) {
-            active[i].classList.remove(ACTIVE_CLASS);
-        }
-    }
-
-    function cssEscape(cls) {
-        if (window.CSS && typeof window.CSS.escape === 'function') return window.CSS.escape(cls);
-        return cls.replace(/[^a-zA-Z0-9_-]/g, '\\$&');
-    }
-
-    function mapIndex(fromIndex, fromCount, toCount) {
-        if (!toCount || toCount <= 0) return null;
-        if (!fromCount || fromCount <= 1 || toCount <= 1) return 0;
-        var mapped = Math.round(fromIndex * (toCount - 1) / (fromCount - 1));
-        if (mapped < 0) mapped = 0;
-        if (mapped > toCount - 1) mapped = toCount - 1;
-        return mapped;
-    }
-
-    function getUid(host) {
-        if (!host || !host.getAttribute) return null;
-        return host.getAttribute('data-et-uid');
-    }
-
-    function findCounterpart(host, pairClass) {
-        var want = host.classList.contains('et-src') ? 'et-tr' : 'et-src';
-        var uid = getUid(host);
-
-        if (uid) {
-            return document.querySelector('.' + want + '[data-et-uid="' + uid + '"]');
-        }
-
-        if (!pairClass) return null;
-        return document.querySelector('.' + want + '.' + cssEscape(pairClass));
-    }
-
-    function highlightParagraph(host, pairClass) {
-        var uid = getUid(host);
-        clearActive();
-
-        if (uid) {
-            var byUid = document.querySelectorAll('[data-et-uid="' + uid + '"]');
-            for (var i = 0; i < byUid.length; i++) byUid[i].classList.add(ACTIVE_CLASS);
-            return;
-        }
-
-        if (!pairClass) return;
-        var selector = '.' + cssEscape(pairClass);
-        var pairNodes = document.querySelectorAll(selector);
-        for (var j = 0; j < pairNodes.length; j++) pairNodes[j].classList.add(ACTIVE_CLASS);
-    }
-
-    function highlightSentence(sentenceEl, host, pairClass) {
-        var idx = parseInt(sentenceEl.getAttribute('data-et-sent'), 10);
-        if (isNaN(idx)) return;
-
-        var peer = findCounterpart(host, pairClass);
-        clearActive();
-        sentenceEl.classList.add(ACTIVE_CLASS);
-
-        if (!peer) return;
-
-        // If explicit per-sentence mapping exists, use it.
-        // 1) Legacy per-span mapping: data-et-to="3,4"
-        var toAttr = sentenceEl.getAttribute('data-et-to');
-        if (toAttr) {
-            var parts = toAttr.split(',');
-            for (var k = 0; k < parts.length; k++) {
-                var t = parseInt(parts[k], 10);
-                if (isNaN(t)) continue;
-                var otherMapped = peer.querySelector('.et-sent[data-et-sent="' + t + '"]');
-                if (otherMapped) otherMapped.classList.add(ACTIVE_CLASS);
-            }
-            return;
-        }
-
-        // 2) Host-level mapping produced by `et_sentence_align.py`: data-et-map="0,0,1,2,..."
-        // Use it only if sentence counts match.
-        var mapAttr = host.getAttribute('data-et-map');
-        if (mapAttr) {
-            var fromCount2 = host.querySelectorAll('.et-sent').length;
-            var toCount2 = peer.querySelectorAll('.et-sent').length;
-            var sentCountAttr = host.getAttribute('data-et-sent-count');
-            var expectedFrom = sentCountAttr ? parseInt(sentCountAttr, 10) : null;
-            var parts2 = mapAttr.split(',');
-            if ((!expectedFrom || expectedFrom === fromCount2) && parts2.length === fromCount2) {
-                var mapped2 = parseInt(parts2[idx], 10);
-                if (!isNaN(mapped2)) {
-                    if (mapped2 < 0) mapped2 = 0;
-                    if (mapped2 > toCount2 - 1) mapped2 = toCount2 - 1;
-                    var other2 = peer.querySelector('.et-sent[data-et-sent="' + mapped2 + '"]');
-                    if (other2) other2.classList.add(ACTIVE_CLASS);
-                    return;
-                }
-            }
-        }
-
-        // Fallback: relative-position mapping.
-        var fromCount = host.querySelectorAll('.et-sent').length;
-        var toCount = peer.querySelectorAll('.et-sent').length;
-        var mapped = mapIndex(idx, fromCount, toCount);
-        if (mapped === null) return;
-
-        var other = peer.querySelector('.et-sent[data-et-sent="' + mapped + '"]');
-        if (other) other.classList.add(ACTIVE_CLASS);
-    }
-
     document.addEventListener('click', function (ev) {
-        var sentenceEl = closestSentence(ev.target);
-        if (sentenceEl) {
-            var host = closestSrcOrTr(sentenceEl);
-            if (!host) return;
-            var pairClass = findPairClass(host);
-            highlightSentence(sentenceEl, host, pairClass);
+        var host = closestSrcOrTr(ev.target);
+        if (!host) {
+            clearHighlights();
             return;
         }
 
-        var host2 = closestSrcOrTr(ev.target);
-        // Paragraph click highlighting is intentionally disabled.
-        // Click outside sentences (or anywhere else) clears highlight.
-        clearActive();
+        var caret = getCaretTextPosition(ev, host);
+        if (!caret) {
+            clearHighlights();
+            return;
+        }
+
+        var hostIdx = findSentenceIndex(host, caret.node, caret.offset);
+        if (hostIdx === null) {
+            clearHighlights();
+            return;
+        }
+
+        var pairClass = findPairClass(host);
+        var peer = findCounterpart(host, pairClass);
+
+        clearHighlights();
+
+        var r1 = makeDomRange(host, hostIdx);
+        highlightRange(r1);
+
+        if (peer) {
+            var peerData = getElementData(peer);
+            var peerIdx = getMappedSentenceIndex(host, hostIdx, peerData.ranges.length);
+            if (peerIdx !== null) {
+                var r2 = makeDomRange(peer, peerIdx);
+                highlightRange(r2);
+                active = { host: host, hostIdx: hostIdx, peer: peer, peerIdx: peerIdx };
+            }
+        }
     }, false);
 })();
 """
