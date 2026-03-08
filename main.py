@@ -23,7 +23,10 @@ def make_toc(book: epub.EpubBook, toc: list, href2id: dict, level=0):
             sub_item = make_toc(book, sub_toc, href2id, level+1)
             item = f'{indent}<li><a id="toc_{href}" href="#{href}">{section.title}</a>{sub_item}</li>'
         lst += indent + item + '\n'
-    return f'\n{indent}<ul>\n{lst}{indent}</ul>\n'
+    style = ""
+    if level == 0:
+        style = "text-align: left;"
+    return f'\n{indent}<ul style="{style}">\n{lst}{indent}</ul>\n'
 
 
 def process_toc_link(book: epub.EpubBook, href2id: dict, link: epub.Link):
@@ -44,7 +47,7 @@ def process_toc_link(book: epub.EpubBook, href2id: dict, link: epub.Link):
     return jump_to_id
 
 
-def process_images(soup, img_tags):
+def process_images(soup, img_tags: dict):
     """
     处理 HTML 中的所有图片标签（`img`）。
     - 替换 `src` 属性。
@@ -70,7 +73,7 @@ def process_ids(soup, item_id):
         id_element['id'] = f"{item_id}_{id_element['id']}"
 
 
-def process_hrefs(soup, href2id, item_id):
+def process_hrefs(soup, href2id: dict, item_id):
     """
     处理 HTML 中的所有链接（`href`）属性，将其转换为内部锚点链接。
     - 如果链接包含 `#`，则处理锚点使其和 process_id 一致。
@@ -100,10 +103,11 @@ def process_hrefs(soup, href2id, item_id):
 def epub_to_html(epub_path, html_path):
     book: epub.EpubBook = epub.read_epub(epub_path)
 
-    # html中所有的 href 属性的唯一标识
+    # book.items() manifest 中的所有 item
+    # item.get_name() 是item.href；item.get_id() 是 item.id
     href2id = {item.get_name(): item.get_id() for item in book.get_items()} \
         | {os.path.basename(item.get_name()): item.get_id() for item in book.get_items()}
-    book_toc = make_toc(book.toc, href2id)
+    book_toc = make_toc(book, book.toc, href2id)
 
     img_tags = {}
     css_content = ""
@@ -145,6 +149,14 @@ def epub_to_html(epub_path, html_path):
         book_content += soup.prettify()
 
     html_content = css_content + '\n' + book_toc + '\n' + book_content + '\n' + js_content
+
+    soup = BeautifulSoup(html_content, "html.parser")
+    body = soup.find("body")
+    if body is not None:
+        body["style"] = "text-align: left;"
+
+    html_content = soup.prettify()
+
     with open(html_path, "w", encoding="utf-8") as html_file:
         html_file.write(html_content)
 
