@@ -54,7 +54,18 @@ def process_images(soup, img_tags: dict):
     - 根据是否有 `class` 属性来设置 `style`。
     """
     for img_element in soup.find_all("img"):
-        img_element['src'] = img_tags[os.path.basename(img_element['src'])]
+        src = img_element.get('src')
+        if not src:
+            continue
+
+        mapped = img_tags.get(src) or img_tags.get(os.path.basename(src))
+        if mapped is None:
+            # Some EPUBs reference images that are not present in the manifest.
+            # Keep the original src so the conversion can still complete.
+            print(f"Warning: image not found in manifest: {src}")
+            continue
+
+        img_element['src'] = mapped
 
         if img_element.get('class') is not None and img_element.parent.get('class') is not None:
             img_element['style'] = ""
@@ -133,6 +144,22 @@ def epub_to_html(epub_path, html_path):
     css_content = f'<style>{css_content}</style>'
     js_content = f'<script>{js_content}</script>'
 
+    toc_sidebar_css = load_toc_sidebar_css()
+    toc_sidebar_js = load_toc_sidebar_js()
+    toc_style = f'\n<style id="{TOC_STYLE_ID}">\n{toc_sidebar_css}\n</style>\n'
+    toc_sidebar = (
+        '\n'
+        '<aside id="et-toc-sidebar" data-et-toc-side="left" data-et-toc-state="expanded">\n'
+        '  <div class="et-toc-header">\n'
+        '    <button type="button" id="et-toc-collapse-btn" class="et-toc-btn et-toc-collapse-btn">收起</button>\n'
+        '    <button type="button" id="et-toc-side-btn" class="et-toc-btn et-toc-side-btn">右侧</button>\n'
+        '  </div>\n'
+        '  <nav class="et-toc-body" id="et-toc-sidebar-body" aria-label="Table of contents"></nav>\n'
+        '</aside>\n'
+    )
+    toc_top = f'\n<div id="et-toc-top">\n{book_toc}\n</div>\n'
+    toc_script = f'\n<script id="{TOC_SCRIPT_ID}">\n{toc_sidebar_js}\n</script>\n'
+
     book_content = ""
     for item_id, linear in book.spine:
         item = book.get_item_with_id(item_id) # 这里基本都是一章一章的，但是一章还可能会有子章节，目录怎么定位到子章节呢
@@ -145,10 +172,10 @@ def epub_to_html(epub_path, html_path):
 
         # 添加目录锚点
         book_content += f'<a id="{item_id}" href="#{item_id}">#</a>'
-        book_content += f'<a id="{item_id}" href="#toc_{item_id}">↩</a>'
+        book_content += f'<a href="#toc_{item_id}">↩</a>'
         book_content += soup.prettify()
 
-    html_content = css_content + '\n' + book_toc + '\n' + book_content + '\n' + js_content
+    html_content = css_content + toc_style + toc_sidebar + toc_top + '\n' + book_content + '\n' + js_content + toc_script
 
     soup = BeautifulSoup(html_content, "html.parser")
     body = soup.find("body")
