@@ -1,15 +1,34 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import re
 from pathlib import Path
 
 try:
-    from bs4 import BeautifulSoup
+    from calibre.ebooks.BeautifulSoup import BeautifulSoup  # type: ignore
 except Exception:  # pragma: no cover
-    BeautifulSoup = None
+    try:
+        from bs4 import BeautifulSoup  # type: ignore
+    except Exception:  # pragma: no cover
+        BeautifulSoup = None
 
-from et_bilingual_pair import auto_tag_adjacent_zh_pairs_in_soup
+def _import_sibling(module_name: str):
+    if __name__.startswith("calibre_plugins."):
+        parts = __name__.split(".")
+        if len(parts) >= 2:
+            pkg = ".".join(parts[:2])
+            try:
+                return importlib.import_module(f"{pkg}.{module_name}")
+            except Exception:
+                pass
+    return importlib.import_module(module_name)
+
+
+try:
+    auto_tag_adjacent_zh_pairs_in_soup = _import_sibling("et_bilingual_pair").auto_tag_adjacent_zh_pairs_in_soup
+except Exception:  # pragma: no cover
+    auto_tag_adjacent_zh_pairs_in_soup = None
 
 STYLE_ID = "et-pair-highlight-style"
 SCRIPT_ID = "et-pair-highlight-script"
@@ -570,6 +589,8 @@ def inject_file(path: Path, *, in_place: bool, backup: bool) -> bool:
     if getattr(inject_file, "auto_tag_zh", False):
         if BeautifulSoup is None:
             raise RuntimeError("BeautifulSoup (bs4) is required for --auto-tag-zh")
+        if auto_tag_adjacent_zh_pairs_in_soup is None:
+            raise RuntimeError("Missing helper: et_bilingual_pair.auto_tag_adjacent_zh_pairs_in_soup")
         soup = BeautifulSoup(original, "html.parser")
         tagged = auto_tag_adjacent_zh_pairs_in_soup(soup)
         # Keep a tiny hint for users debugging.

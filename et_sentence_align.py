@@ -400,18 +400,12 @@ def align_et_pairs_in_soup(
     so original markup (links, superscripts, lists, line breaks) stays intact.
     """
 
-    # Import here to avoid making this module hard-fail unless actually used.
-    try:
-        from bs4 import Tag  # type: ignore
-    except Exception as exc:  # pragma: no cover
-        raise RuntimeError("BeautifulSoup (bs4) is required for alignment.") from exc
-
     nodes = soup.select(".et-src, .et-tr")
 
     # Pair up paragraphs first (FIFO per et-pair-xxx) to know the exact total.
-    pending_src: dict[str, deque[Tag]] = {}
-    pending_tr: dict[str, deque[Tag]] = {}
-    pairs: list[tuple[Tag, Tag]] = []
+    pending_src: dict[str, deque] = {}
+    pending_tr: dict[str, deque] = {}
+    pairs: list[tuple[object, object]] = []
 
     for el in nodes:
         classes = el.get("class") or []
@@ -473,23 +467,23 @@ def align_et_pairs_in_soup(
         sys.stderr.write(f"\rAligning bilingual pairs: [{bar}] {done}/{total_pairs} ({pct*100:5.1f}%)")
         sys.stderr.flush()
 
-    pending_src: dict[str, list[Tag]] = {}
-    pending_tr: dict[str, list[Tag]] = {}
+    pending_src: dict[str, list] = {}
+    pending_tr: dict[str, list] = {}
 
-    def pop_or_none(d: dict[str, list[Tag]], key: str):
+    def pop_or_none(d: dict[str, list], key: str):
         q = d.get(key)
         if not q:
             return None
         return q.pop(0)
 
-    def push(d: dict[str, list[Tag]], key: str, v: Tag) -> None:
+    def push(d: dict[str, list], key: str, v) -> None:
         d.setdefault(key, []).append(v)
 
     aligned = 0
     uid_counter = 0
 
     # Chunk paragraph-pairs and batch encode all sentences in the chunk.
-    chunk: list[tuple[Tag, Tag, list[str], list[str]]] = []
+    chunk: list[tuple[object, object, list[str], list[str]]] = []
     chunk_sentence_count = 0
 
     def process_chunk() -> None:
@@ -501,7 +495,7 @@ def align_et_pairs_in_soup(
             return
 
         texts: list[str] = []
-        meta: list[tuple[Tag, Tag, list[str], list[str], int, int, int, int]] = []
+        meta: list[tuple[object, object, list[str], list[str], int, int, int, int]] = []
 
         for src_el, tr_el, src_sents, tr_sents in chunk:
             src_start = len(texts)

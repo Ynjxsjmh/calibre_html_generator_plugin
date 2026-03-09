@@ -70,11 +70,6 @@ def auto_tag_adjacent_zh_pairs_in_soup(
     Returns number of pairs tagged.
     """
 
-    try:
-        from bs4 import Tag  # type: ignore
-    except Exception as exc:  # pragma: no cover
-        raise RuntimeError("BeautifulSoup (bs4) is required.") from exc
-
     pairable = set(str(t).lower() for t in pairable_tags)
 
     used: set[str] = set()
@@ -91,8 +86,10 @@ def auto_tag_adjacent_zh_pairs_in_soup(
         if parent.name in {"script", "style"}:
             continue
 
-        # Build a list of direct Tag children, skipping whitespace NavigableStrings.
-        children: list[Tag] = [c for c in parent.children if isinstance(c, Tag)]
+        # Build a list of direct element children, skipping text nodes.
+        # We use duck-typing to avoid importing bs4.Tag directly, since calibre
+        # plugins may not have the external `bs4` package importable.
+        children = [c for c in parent.children if getattr(c, "name", None)]
         if len(children) < 2:
             continue
 
