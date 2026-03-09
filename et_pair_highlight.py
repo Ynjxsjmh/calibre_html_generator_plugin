@@ -70,6 +70,11 @@ HIGHLIGHT_JS = r"""/* et-pair-highlight */
         // ignore
     }
 
+    // Global highlight enable/disable flag
+    if (window.etHighlightEnabled === undefined) {
+        window.etHighlightEnabled = true;
+    }
+
     var elementCache = new WeakMap();
     var mapCache = new WeakMap();
     var active = null; // { host, hostIdx, peer, peerIdx }
@@ -473,6 +478,10 @@ HIGHLIGHT_JS = r"""/* et-pair-highlight */
     }
 
     document.addEventListener('click', function (ev) {
+        if (!window.etHighlightEnabled) {
+            clearHighlights();
+            return;
+        }
         var host = closestSrcOrTr(ev.target);
         if (!host) {
             clearHighlights();

@@ -327,6 +327,7 @@ def export_container_to_single_html(container) -> str:
         '  <div class="et-toc-header">\n'
         '    <button type="button" id="et-toc-collapse-btn" class="et-toc-btn et-toc-collapse-btn">收起</button>\n'
         '    <button type="button" id="et-toc-side-btn" class="et-toc-btn et-toc-side-btn">右侧</button>\n'
+        '    <button type="button" id="et-toc-highlight-btn" class="et-toc-btn et-toc-highlight-btn">禁用</button>\n'
         "  </div>\n"
         '  <nav class="et-toc-body" id="et-toc-sidebar-body" aria-label="Table of contents"></nav>\n'
         '  <div class="et-toc-resizer" id="et-toc-resizer" aria-hidden="true"></div>\n'

@@ -39,6 +39,7 @@
         var sidebarBody = document.getElementById(SIDEBAR_BODY_ID);
         var collapseBtn = document.getElementById('et-toc-collapse-btn');
         var sideBtn = document.getElementById('et-toc-side-btn');
+        var highlightBtn = document.getElementById('et-toc-highlight-btn');
         var resizer = document.getElementById('et-toc-resizer');
 
         if (!resizer) {
@@ -363,6 +364,18 @@
                 setSide(side === 'right' ? 'left' : 'right');
             });
         }
+        if (highlightBtn) {
+            highlightBtn.addEventListener('click', function () {
+                var enabled = highlightBtn.getAttribute('data-et-highlight-enabled') !== 'false';
+                enabled = !enabled;
+                highlightBtn.setAttribute('data-et-highlight-enabled', enabled ? 'true' : 'false');
+                highlightBtn.textContent = enabled ? '禁用' : '启用';
+                // Set global flag for highlight functionality
+                if (window.etHighlightEnabled !== undefined) {
+                    window.etHighlightEnabled = enabled;
+                }
+            });
+        }
 
         // Note: do NOT intercept clicks of `#toc_...` anchors.
         // `↩` uses `href="#toc_xxx"` to jump back to the top TOC. We keep that default behavior.
@@ -392,6 +405,11 @@
         // Init
         setSide(sidebar.getAttribute('data-et-toc-side') || 'left');
         setCollapsed((sidebar.getAttribute('data-et-toc-state') || 'expanded') === 'collapsed');
+        if (highlightBtn) {
+            var initialEnabled = window.etHighlightEnabled !== false;
+            highlightBtn.setAttribute('data-et-highlight-enabled', initialEnabled ? 'true' : 'false');
+            highlightBtn.textContent = initialEnabled ? '禁用' : '启用';
+        }
         ensureSidebarToc();
         onHash();
         // Initial highlight.
