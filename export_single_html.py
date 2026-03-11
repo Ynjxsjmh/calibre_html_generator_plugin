@@ -10,6 +10,8 @@ from urllib.parse import urlparse
 
 _INVALID_FILENAME_CHARS_RE = re.compile(r"[\\/:*?\"<>|]+")
 
+_INLINE_MAX_HEIGHT_NONE_RE = re.compile(r"max-height\s*:\s*none\b", re.IGNORECASE)
+
 _DOC_EXTS = {".xhtml", ".html", ".htm"}
 _DOC_MEDIA_TYPES = {"application/xhtml+xml", "text/html"}
 
@@ -230,6 +232,23 @@ def _rewrite_doc_to_body_html(
             data_uri = f"data:{mt};base64,{b64}"
             img_uri_cache[img_name] = data_uri
         img.set("src", data_uri)
+
+        # Keep behavior consistent with the legacy BeautifulSoup exporter:
+        # - If <img> has class: clear inline style
+        # - If <img> has class and parent has class: also relax parent's max-height
+        # - Else: apply responsive defaults
+        img_has_class = img.get("class") is not None
+        if img_has_class:
+            img.set("style", "")
+            parent = img.getparent()
+            if parent is not None and parent.get("class") is not None:
+                parent_style = (parent.get("style") or "").strip()
+                if not _INLINE_MAX_HEIGHT_NONE_RE.search(parent_style):
+                    if parent_style and not parent_style.endswith(";"):
+                        parent_style += ";"
+                    parent.set("style", (parent_style + " max-height: none;").strip())
+        else:
+            img.set("style", "width: auto; max-width: 100%; height: auto;")
 
     XLINK = "{http://www.w3.org/1999/xlink}href"
     for im in doc.xpath('//*[local-name()="image"]'):
