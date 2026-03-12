@@ -111,7 +111,7 @@ class HTMLGeneratorLibraryInterfaceAction(InterfaceAction):
                 container = get_container(tf.name, tweak_mode=True)
                 html_content = export_container_to_single_html(container)
 
-                with open(out_path, 'w', encoding='utf-8', newline='\n') as f:
+                with open(out_path, 'w', encoding='utf-8-sig', newline='\n') as f:
                     f.write(html_content)
 
                 exported += 1

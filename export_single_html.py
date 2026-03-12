@@ -377,6 +377,7 @@ def export_container_to_single_html(container) -> str:
         "<html>\n"
         "<head>\n"
         "  <meta charset=\"utf-8\">\n"
+        "  <meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\">\n"
         f"  <title>{safe_title}</title>\n"
         f"{css_block}"
         f"{toc_style}"
