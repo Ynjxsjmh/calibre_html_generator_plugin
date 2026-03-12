@@ -1,0 +1,19 @@
+/* et-pair-highlight */
+
+#et-hl-layer {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+    z-index: 2147483647;
+}
+
+.et-hl-rect {
+    position: absolute;
+    background: rgba(255, 238, 140, 0.65);
+    border-radius: 3px;
+    box-shadow: inset 0 0 0 1px rgba(180, 140, 0, 0.35);
+    pointer-events: none;
+}
