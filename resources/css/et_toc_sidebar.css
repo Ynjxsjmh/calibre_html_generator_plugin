@@ -158,8 +158,8 @@ body {
 }
 
 #et-toc-sidebar .et-toc-header {
-  display: flex;
-  align-items: center;
+  display: flex !important;
+  align-items: center !important;
   gap: 6px;
   padding: 6px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.12);
@@ -167,23 +167,26 @@ body {
 
 #et-toc-sidebar[data-et-toc-state="collapsed"] .et-toc-header {
   flex-direction: column;
-  gap: 1px;
-  padding: 1px;
+  gap: 4px;
+  padding: 6px;
 }
 
+/* Ensure collapsed button labels can wrap even if ebook CSS forces nowrap. */
 #et-toc-sidebar[data-et-toc-state="collapsed"] .et-toc-btn {
-  width: 100%;
-  font-size: 12px;
-  line-height: 1.2;
-  padding: 2px 0;
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   max-width: 100%;
+  box-sizing: border-box;
+  width: 100%;
+  padding-left: 0;
+  padding-right: 0;
 
-  display: flex;
-  align-items: center;
-  justify-content: center;
-
-  /* The JS sets button labels with `\n` (e.g. "目\n录") for a compact two-line look. */
-  white-space: pre-line;
+  /* Some book CSS (or viewer CSS) may style buttons as flex + right-aligned.
+     Force centered labels in the collapsed narrow rail. */
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
   text-align: center !important;
 }
 
@@ -193,10 +196,12 @@ body {
   line-height: 1.2;
   padding: 4px 6px;
   cursor: pointer;
+  /* Some ebooks style `aside`/`button` with `text-align: right`. Keep sidebar controls centered. */
+  text-align: center !important;
 }
 
 #et-toc-sidebar[data-et-toc-state="collapsed"] .et-toc-side-btn {
-  display: none;
+  display: none !important;
 }
 
 #et-toc-sidebar .et-toc-body {

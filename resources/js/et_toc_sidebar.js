@@ -140,22 +140,11 @@
         var sidebarHrefMap = null; // { href: <a> }
         var rafPending = false;
 
-        function stackLabel(text) {
-            var s = (text === undefined || text === null) ? '' : String(text);
-            if (!s) return s;
-            if (s.indexOf('\n') >= 0) return s;
-            if (s.length <= 1) return s;
-            var out = '';
-            for (var i = 0; i < s.length; i++) {
-                out += s.charAt(i);
-                if (i !== s.length - 1) out += '\n';
-            }
-            return out;
-        }
-
         function setCollapseButtonLabel(collapsed) {
             if (!collapseBtn) return;
-            collapseBtn.textContent = collapsed ? stackLabel('目录') : '收起';
+            // Match the html_generator implementation: keep the label intact and
+            // let the narrow collapsed width naturally wrap CJK text (e.g. "目录" -> "目/录").
+            collapseBtn.textContent = collapsed ? '目录' : '收起';
         }
 
         function isHighlightEnabled() {
@@ -167,7 +156,8 @@
             if (!highlightBtn) return;
             var enabled = isHighlightEnabled();
             var label = enabled ? '禁用' : '启用';
-            highlightBtn.textContent = isCollapsed() ? stackLabel(label) : label;
+            // Same as collapse button: rely on wrapping instead of injecting '\n'.
+            highlightBtn.textContent = label;
         }
 
         function clamp(n, lo, hi) {
@@ -318,6 +308,9 @@
             sidebar.setAttribute('data-et-toc-state', collapsed ? 'collapsed' : 'expanded');
             setCollapseButtonLabel(collapsed);
             setHighlightButtonLabel();
+            // Hide the side-switch button in collapsed state (compact rail).
+            // Use inline style to win over any ebook CSS.
+            if (sideBtn) sideBtn.style.display = collapsed ? 'none' : '';
             applyBodyOffset();
             if (!collapsed) ensureSidebarToc();
             markTocDirty();
