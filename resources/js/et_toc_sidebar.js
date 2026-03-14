@@ -54,23 +54,121 @@
             }
         }
 
-        // Capture base margins so we can offset without destroying the ebook CSS spacing.
-        var baseML = '0px';
-        var baseMR = '0px';
+        // Reserve space for the fixed TOC sidebar using *padding* (not margins).
+        // Using body margins here can create horizontal overflow/clipping when the reader column is centered.
+        // Keep the original inline paddings so overlay mode can restore the ebook's defaults.
+        var bodyInlinePL = '';
+        var bodyInlinePR = '';
         try {
             if (document.body) {
-                var cs = window.getComputedStyle(document.body);
-                baseML = cs.marginLeft || '0px';
-                baseMR = cs.marginRight || '0px';
+                bodyInlinePL = document.body.style.paddingLeft || '';
+                bodyInlinePR = document.body.style.paddingRight || '';
             }
-        } catch (e) {
+        } catch (eInlinePad) {
             // ignore
         }
 
-        var tocIndex = null; // [{ tocId, top }]
+        var basePL = '0px';
+        var basePR = '0px';
+        var basePaddingDirty = true;
+
+        function refreshBaseBodyPadding() {
+            if (!document.body) return;
+            basePaddingDirty = false;
+
+            var oldPL = '';
+            var oldPR = '';
+            try {
+                oldPL = document.body.style.paddingLeft || '';
+                oldPR = document.body.style.paddingRight || '';
+                // Temporarily reset to the ebook's original inline styles so computed values reflect the base CSS.
+                document.body.style.paddingLeft = bodyInlinePL;
+                document.body.style.paddingRight = bodyInlinePR;
+            } catch (eResetPad) {
+                // ignore
+            }
+
+            try {
+                var cs0 = window.getComputedStyle(document.body);
+                basePL = cs0.paddingLeft || '0px';
+                basePR = cs0.paddingRight || '0px';
+            } catch (ePad) {
+                basePL = '0px';
+                basePR = '0px';
+            }
+
+            try {
+                document.body.style.paddingLeft = oldPL;
+                document.body.style.paddingRight = oldPR;
+            } catch (eRestorePad) {
+                // ignore
+            }
+        }
+
+        // Overlay mode should happen on *mobile devices* (touch-first), not just when a desktop window is narrow.
+        // Otherwise desktop users can't resize and will see sidebar/content overlap.
+        var overlayMql = null;
+        try {
+            if (window.matchMedia) overlayMql = window.matchMedia('(hover: none) and (pointer: coarse)');
+        } catch (eMql) {
+            overlayMql = null;
+        }
+
+        var uaIsMobile = false;
+        try {
+            var ua = (navigator && navigator.userAgent) ? String(navigator.userAgent) : '';
+            uaIsMobile = /\b(Mobi|Android|iPhone|iPad|iPod)\b/i.test(ua);
+        } catch (eUA) {
+            uaIsMobile = false;
+        }
+
+        function isOverlayMode() {
+            if (uaIsMobile) return true;
+            try {
+                if (overlayMql) return !!overlayMql.matches;
+            } catch (eOM) {
+                // ignore
+            }
+            return false;
+        }
+
+        var tocIndex = null; // [{ tocId, href, top }]
+        var tocIdToHref = null; // { tocId: href }
         var tocDirty = true;
         var activeTocId = null;
+        var activeSidebarLink = null;
+        var sidebarHrefMap = null; // { href: <a> }
         var rafPending = false;
+
+        function stackLabel(text) {
+            var s = (text === undefined || text === null) ? '' : String(text);
+            if (!s) return s;
+            if (s.indexOf('\n') >= 0) return s;
+            if (s.length <= 1) return s;
+            var out = '';
+            for (var i = 0; i < s.length; i++) {
+                out += s.charAt(i);
+                if (i !== s.length - 1) out += '\n';
+            }
+            return out;
+        }
+
+        function setCollapseButtonLabel(collapsed) {
+            if (!collapseBtn) return;
+            collapseBtn.textContent = collapsed ? stackLabel('目录') : '收起';
+        }
+
+        function isHighlightEnabled() {
+            if (!highlightBtn) return true;
+            return highlightBtn.getAttribute('data-et-highlight-enabled') !== 'false';
+        }
+
+        function setHighlightButtonLabel() {
+            if (!highlightBtn) return;
+            var enabled = isHighlightEnabled();
+            var label = enabled ? '禁用' : '启用';
+            highlightBtn.textContent = isCollapsed() ? stackLabel(label) : label;
+        }
 
         function clamp(n, lo, hi) {
             if (n < lo) return lo;
@@ -90,6 +188,7 @@
         function rebuildTocIndex() {
             tocDirty = false;
             tocIndex = [];
+            tocIdToHref = Object.create(null);
 
             var top = document.getElementById(TOP_ID);
             if (!top) return;
@@ -110,7 +209,8 @@
                 } catch (e2) {
                     topPx = 0;
                 }
-                tocIndex.push({ tocId: tocId, top: topPx });
+                tocIdToHref[tocId] = href;
+                tocIndex.push({ tocId: tocId, href: href, top: topPx });
             }
 
             tocIndex.sort(function (x, y) { return x.top - y.top; });
@@ -150,21 +250,76 @@
 
         function applyBodyOffset() {
             if (!document.body) return;
+
+            if (basePaddingDirty) refreshBaseBodyPadding();
+
+            // On mobile devices, let the TOC overlay.
+            // When *collapsed* in overlay mode, reserve a tiny gutter so the header buttons
+            // don't cover the first characters of the text.
+            if (isOverlayMode()) {
+                try {
+                    sidebar.setAttribute('data-et-toc-overlay', '1');
+                } catch (eOA) {
+                    // ignore
+                }
+
+                var oSide = sidebar.getAttribute('data-et-toc-side') || 'left';
+                var oCollapsed = sidebar.getAttribute('data-et-toc-state') === 'collapsed';
+
+                try {
+                    if (oCollapsed) {
+                        if (oSide === 'right') {
+                            document.body.style.setProperty(
+                                'padding-right',
+                                'calc(' + basePR + ' + ' + COLLAPSED_WIDTH + 'px)',
+                                'important'
+                            );
+                            document.body.style.setProperty('padding-left', bodyInlinePL, '');
+                        } else {
+                            document.body.style.setProperty(
+                                'padding-left',
+                                'calc(' + basePL + ' + ' + COLLAPSED_WIDTH + 'px)',
+                                'important'
+                            );
+                            document.body.style.setProperty('padding-right', bodyInlinePR, '');
+                        }
+                    } else {
+                        document.body.style.setProperty('padding-left', bodyInlinePL, '');
+                        document.body.style.setProperty('padding-right', bodyInlinePR, '');
+                    }
+                } catch (ePad0) {
+                    // ignore
+                }
+                return;
+            }
+
+            try {
+                sidebar.removeAttribute('data-et-toc-overlay');
+            } catch (eOR) {
+                // ignore
+            }
+
             var side = sidebar.getAttribute('data-et-toc-side') || 'left';
             var w = getSidebarWidthPx();
-            if (side === 'right') {
-                document.body.style.marginRight = 'calc(' + baseMR + ' + ' + w + 'px)';
-                document.body.style.marginLeft = baseML;
-            } else {
-                document.body.style.marginLeft = 'calc(' + baseML + ' + ' + w + 'px)';
-                document.body.style.marginRight = baseMR;
+            try {
+                if (side === 'right') {
+                    document.body.style.setProperty('padding-right', 'calc(' + basePR + ' + ' + w + 'px)', 'important');
+                    document.body.style.setProperty('padding-left', basePL, 'important');
+                } else {
+                    document.body.style.setProperty('padding-left', 'calc(' + basePL + ' + ' + w + 'px)', 'important');
+                    document.body.style.setProperty('padding-right', basePR, 'important');
+                }
+            } catch (ePad1) {
+                // ignore
             }
         }
 
         function setCollapsed(collapsed) {
             sidebar.setAttribute('data-et-toc-state', collapsed ? 'collapsed' : 'expanded');
-            if (collapseBtn) collapseBtn.textContent = collapsed ? '目录' : '收起';
+            setCollapseButtonLabel(collapsed);
+            setHighlightButtonLabel();
             applyBodyOffset();
+            if (!collapsed) ensureSidebarToc();
             markTocDirty();
             scheduleActiveUpdate();
         }
@@ -252,6 +407,9 @@
             if (sidebarBody.getAttribute('data-et-built') === '1') return;
             sidebarBody.setAttribute('data-et-built', '1');
 
+            sidebarHrefMap = Object.create(null);
+            activeSidebarLink = null;
+
             var top = document.getElementById(TOP_ID);
             var sourceList = top ? top.querySelector('ul') : null;
             if (!sourceList) {
@@ -272,6 +430,9 @@
                 }
                 var txt = normalizeText(a.textContent);
                 if (txt) a.setAttribute('title', txt);
+
+                var href = a.getAttribute('href') || '';
+                if (href) sidebarHrefMap[href] = a;
             }
 
             // Strip inline styles on the cloned tree to avoid odd layout in the sidebar.
@@ -289,15 +450,19 @@
         }
 
         function clearActive() {
-            if (!sidebarBody) return;
-            var prev = sidebarBody.querySelectorAll('a.et-toc-active');
-            for (var i = 0; i < prev.length; i++) {
-                prev[i].classList.remove('et-toc-active');
+            if (activeSidebarLink) {
+                try {
+                    activeSidebarLink.classList.remove('et-toc-active');
+                } catch (eR) {
+                    // ignore
+                }
             }
+            activeSidebarLink = null;
         }
 
         function findSidebarLinkByHref(href) {
             if (!sidebarBody || !href) return null;
+            if (sidebarHrefMap && sidebarHrefMap[href]) return sidebarHrefMap[href];
             var links = sidebarBody.querySelectorAll('a[href]');
             for (var i = 0; i < links.length; i++) {
                 if (links[i].getAttribute('href') === href) return links[i];
@@ -305,19 +470,29 @@
             return null;
         }
 
-        function focusByTocId(tocId) {
-            ensureSidebarToc();
-            if (!tocId) return;
+        function isCollapsed() {
+            try {
+                return sidebar.getAttribute('data-et-toc-state') === 'collapsed';
+            } catch (eC) {
+                return false;
+            }
+        }
 
-            var topLink = document.getElementById(tocId);
-            var href = topLink ? topLink.getAttribute('href') : null;
+        function focusByHref(href) {
+            ensureSidebarToc();
             if (!href) return;
 
             var link = findSidebarLinkByHref(href);
             if (!link) return;
 
-            clearActive();
-            link.classList.add('et-toc-active');
+            if (activeSidebarLink && activeSidebarLink !== link) {
+                try { activeSidebarLink.classList.remove('et-toc-active'); } catch (eA0) { /* ignore */ }
+            }
+
+            try { link.classList.add('et-toc-active'); } catch (eA1) { /* ignore */ }
+            activeSidebarLink = link;
+
+            if (isCollapsed()) return;
             try {
                 link.scrollIntoView({ block: 'nearest' });
             } catch (e) {
@@ -325,8 +500,31 @@
             }
         }
 
+        function focusByTocId(tocId) {
+            if (!tocId) return;
+
+            // Always track the latest active TOC id even when collapsed.
+            activeTocId = tocId;
+
+            var href = null;
+            try {
+                if (tocIdToHref && tocIdToHref[tocId]) href = tocIdToHref[tocId];
+            } catch (eH0) {
+                href = null;
+            }
+
+            if (!href) {
+                var topLink = document.getElementById(tocId);
+                href = topLink ? (topLink.getAttribute('href') || null) : null;
+            }
+
+            if (!href) return;
+            if (isCollapsed()) return;
+            focusByHref(href);
+        }
+
         function updateActiveFromScroll() {
-            ensureSidebarToc();
+            if (isCollapsed()) return;
             ensureTocIndex();
             if (!tocIndex || !tocIndex.length) return;
 
@@ -348,7 +546,7 @@
             var tocId = tocIndex[idx].tocId;
             if (!tocId || tocId === activeTocId) return;
             activeTocId = tocId;
-            focusByTocId(tocId);
+            focusByHref(tocIndex[idx].href);
         }
 
         // Button wiring
@@ -369,7 +567,7 @@
                 var enabled = highlightBtn.getAttribute('data-et-highlight-enabled') !== 'false';
                 enabled = !enabled;
                 highlightBtn.setAttribute('data-et-highlight-enabled', enabled ? 'true' : 'false');
-                highlightBtn.textContent = enabled ? '禁用' : '启用';
+                setHighlightButtonLabel();
                 // Set global flag for highlight functionality
                 if (window.etHighlightEnabled !== undefined) {
                     window.etHighlightEnabled = enabled;
@@ -399,18 +597,20 @@
 
         // Keep the active TOC item in sync with reading position.
         addWindowListener('scroll', scheduleActiveUpdate);
-        addWindowListener('resize', function () { markTocDirty(); scheduleActiveUpdate(); });
-        addWindowListener('load', function () { markTocDirty(); scheduleActiveUpdate(); });
+        addWindowListener('resize', function () { basePaddingDirty = true; markTocDirty(); applyBodyOffset(); scheduleActiveUpdate(); });
+        addWindowListener('load', function () { basePaddingDirty = true; markTocDirty(); applyBodyOffset(); scheduleActiveUpdate(); });
 
         // Init
         setSide(sidebar.getAttribute('data-et-toc-side') || 'left');
-        setCollapsed((sidebar.getAttribute('data-et-toc-state') || 'expanded') === 'collapsed');
+        var initialCollapsed = (sidebar.getAttribute('data-et-toc-state') || 'expanded') === 'collapsed';
+        if (isOverlayMode()) initialCollapsed = true;
+        setCollapsed(initialCollapsed);
         if (highlightBtn) {
             var initialEnabled = window.etHighlightEnabled !== false;
             highlightBtn.setAttribute('data-et-highlight-enabled', initialEnabled ? 'true' : 'false');
-            highlightBtn.textContent = initialEnabled ? '禁用' : '启用';
+            setHighlightButtonLabel();
         }
-        ensureSidebarToc();
+        if (!isCollapsed()) ensureSidebarToc();
         onHash();
         // Initial highlight.
         scheduleActiveUpdate();

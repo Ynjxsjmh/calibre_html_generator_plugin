@@ -1,5 +1,130 @@
 /* et-toc-sidebar */
 
+/* --- Reader baseline (exported single-HTML) --- */
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+#et-reader {
+  box-sizing: border-box;
+  max-width: var(--et-reader-max-width, 56rem);
+  margin: 0 auto;
+  padding: calc(var(--et-reader-padding-y, 16px) + env(safe-area-inset-top, 0px))
+    calc(var(--et-reader-padding-x, 14px) + env(safe-area-inset-right, 0px))
+    calc(var(--et-reader-padding-y, 16px) + env(safe-area-inset-bottom, 0px))
+    calc(var(--et-reader-padding-x, 14px) + env(safe-area-inset-left, 0px));
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* Mobile overlay: slightly tighter page gutters. */
+#et-toc-sidebar[data-et-toc-overlay="1"] ~ #et-reader {
+  --et-reader-padding-x: 5.5px;
+}
+
+/* Desktop (non-overlay): keep the reader column adjacent to the TOC.
+   Otherwise, when the TOC is narrow/collapsed the centered column creates a large empty gap. */
+#et-toc-sidebar:not([data-et-toc-overlay="1"])[data-et-toc-side="left"] ~ #et-reader {
+  max-width: var(--et-reader-max-width-desktop, 100%);
+  margin-left: 0;
+  margin-right: auto;
+}
+
+#et-toc-sidebar:not([data-et-toc-overlay="1"])[data-et-toc-side="right"] ~ #et-reader {
+  max-width: var(--et-reader-max-width-desktop, 100%);
+  margin-right: 0;
+  margin-left: auto;
+}
+
+#et-reader * {
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* Some ebooks enforce `white-space: nowrap` (sometimes with `!important`) on endnotes/footnotes.
+   Normalize wrapping on common text containers so long URLs never create horizontal scrolling. */
+#et-reader p,
+#et-reader li,
+#et-reader blockquote,
+#et-reader dd,
+#et-reader dt,
+#et-reader td,
+#et-reader th,
+#et-reader div,
+#et-reader span,
+#et-reader a {
+  white-space: normal !important;
+}
+
+/* Preserve preformatted/code blocks while still allowing them to wrap within the viewport. */
+#et-reader pre,
+#et-reader pre * {
+  white-space: pre-wrap !important;
+}
+
+#et-reader code,
+#et-reader kbd,
+#et-reader samp {
+  white-space: pre-wrap !important;
+}
+
+#et-reader img,
+#et-reader svg,
+#et-reader video,
+#et-reader canvas,
+#et-reader iframe {
+  max-width: 100%;
+  height: auto;
+}
+
+#et-reader img {
+  display: block;
+}
+
+#et-reader p,
+#et-reader li,
+#et-reader blockquote,
+#et-reader dd,
+#et-reader dt,
+#et-reader td,
+#et-reader th,
+#et-reader a {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+#et-reader pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+#et-reader table {
+  width: 100%;
+  max-width: 100%;
+  table-layout: fixed;
+}
+
+/* Overlay mode (mobile): allow wider sidebar and disable mouse-only resizer. */
+#et-toc-sidebar[data-et-toc-overlay="1"] {
+  max-width: 86vw;
+}
+
+#et-toc-sidebar[data-et-toc-overlay="1"] .et-toc-resizer {
+  display: none;
+}
+
 #et-toc-sidebar {
   position: fixed;
   top: 0;
@@ -42,7 +167,24 @@
 
 #et-toc-sidebar[data-et-toc-state="collapsed"] .et-toc-header {
   flex-direction: column;
-  gap: 4px;
+  gap: 1px;
+  padding: 1px;
+}
+
+#et-toc-sidebar[data-et-toc-state="collapsed"] .et-toc-btn {
+  width: 100%;
+  font-size: 12px;
+  line-height: 1.2;
+  padding: 2px 0;
+  max-width: 100%;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  /* The JS sets button labels with `\n` (e.g. "目\n录") for a compact two-line look. */
+  white-space: pre-line;
+  text-align: center !important;
 }
 
 #et-toc-sidebar .et-toc-btn {
