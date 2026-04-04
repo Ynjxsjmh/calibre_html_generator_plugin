@@ -105,9 +105,27 @@ html[data-et-theme="solarized-night"] {
 }
 
 #et-toc-sidebar .et-toc-btn {
-  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  min-height: 26px;
+  background: var(--et-reader-panel-bg);
   color: inherit;
-  border: 1px solid var(--et-reader-panel-border);
+  border: 0;
+  border-radius: 999px;
+}
+
+#et-toc-sidebar .et-toc-btn:hover {
+  background: var(--et-reader-soft-hover);
+}
+
+#et-toc-sidebar .et-toc-btn:focus {
+  outline: 2px solid var(--et-reader-panel-border);
+  outline-offset: 2px;
 }
 
 #et-reader-settings {

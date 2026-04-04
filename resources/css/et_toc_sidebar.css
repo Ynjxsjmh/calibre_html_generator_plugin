@@ -179,8 +179,8 @@ body {
   max-width: 100%;
   box-sizing: border-box;
   width: 100%;
-  padding-left: 0;
-  padding-right: 0;
+  padding-left: 2px;
+  padding-right: 2px;
 
   /* Some book CSS (or viewer CSS) may style buttons as flex + right-aligned.
      Force centered labels in the collapsed narrow rail. */
