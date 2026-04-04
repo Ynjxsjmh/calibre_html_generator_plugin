@@ -21,10 +21,13 @@ def main() -> int:
         ),
         (root / "export_single_html.py", "export_single_html.py"),
         (root / "et_pair_highlight.py", "et_pair_highlight.py"),
+        (root / "et_reader_settings.py", "et_reader_settings.py"),
         (root / "et_bilingual_pair.py", "et_bilingual_pair.py"),
         (root / "et_toc_sidebar.py", "et_toc_sidebar.py"),
         (root / "resources" / "css" / "et_pair_highlight.css", "resources/css/et_pair_highlight.css"),
         (root / "resources" / "js" / "et_pair_highlight.js", "resources/js/et_pair_highlight.js"),
+        (root / "resources" / "css" / "et_reader_settings.css", "resources/css/et_reader_settings.css"),
+        (root / "resources" / "js" / "et_reader_settings.js", "resources/js/et_reader_settings.js"),
         (root / "resources" / "css" / "et_toc_sidebar.css", "resources/css/et_toc_sidebar.css"),
         (root / "resources" / "js" / "et_toc_sidebar.js", "resources/js/et_toc_sidebar.js"),
     ]

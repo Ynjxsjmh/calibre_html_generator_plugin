@@ -1,0 +1,207 @@
+/* et-reader-settings */
+
+:root {
+  --et-reader-bg: #ffffff;
+  --et-reader-fg: #111111;
+  --et-reader-link: #0b61d8;
+  --et-reader-panel-bg: rgba(0, 0, 0, 0.03);
+  --et-reader-panel-border: rgba(0, 0, 0, 0.14);
+  --et-reader-soft-hover: rgba(0, 0, 0, 0.06);
+
+  /* These are only applied when `html[data-et-reader-override="1"]` is present. */
+  --et-reader-font-size: 16px;
+  --et-reader-line-height: 1.4;
+}
+
+html, body {
+  background: var(--et-reader-bg) !important;
+  color: var(--et-reader-fg) !important;
+}
+
+/* Keep the reading background visible even if an EPUB section wrapper has its own background. */
+.et-epub-body {
+  background: transparent !important;
+}
+
+html[data-et-reader-override="1"] body {
+  font-size: var(--et-reader-font-size) !important;
+  line-height: var(--et-reader-line-height) !important;
+}
+
+html[data-et-reader-override="1"] p,
+html[data-et-reader-override="1"] li {
+  line-height: var(--et-reader-line-height) !important;
+}
+
+a {
+  color: var(--et-reader-link) !important;
+}
+
+html[data-et-theme="gray"] {
+  --et-reader-bg: #ededed;
+  --et-reader-fg: #111111;
+  --et-reader-link: #0b61d8;
+}
+
+html[data-et-theme="eye"] {
+  --et-reader-bg: #f7efd0;
+  --et-reader-fg: #111111;
+  --et-reader-link: #0b61d8;
+}
+
+html[data-et-theme="pink"] {
+  --et-reader-bg: #f9e6e6;
+  --et-reader-fg: #111111;
+  --et-reader-link: #0b61d8;
+}
+
+html[data-et-theme="green"] {
+  --et-reader-bg: #cddfcd;
+  --et-reader-fg: #111111;
+  --et-reader-link: #0b61d8;
+}
+
+html[data-et-theme="night"] {
+  --et-reader-bg: #0f1115;
+  --et-reader-fg: #e7e7e7;
+  --et-reader-link: #8ab4f8;
+  --et-reader-panel-bg: rgba(255, 255, 255, 0.06);
+  --et-reader-panel-border: rgba(255, 255, 255, 0.18);
+  --et-reader-soft-hover: rgba(255, 255, 255, 0.12);
+}
+
+html[data-et-theme="solarized-light"] {
+  --et-reader-bg: #fdf6e3;
+  --et-reader-fg: #657b83;
+  --et-reader-link: #268bd2;
+}
+
+html[data-et-theme="solarized-night"] {
+  --et-reader-bg: #002b36;
+  --et-reader-fg: #93a1a1;
+  --et-reader-link: #268bd2;
+  --et-reader-panel-bg: rgba(255, 255, 255, 0.06);
+  --et-reader-panel-border: rgba(255, 255, 255, 0.18);
+  --et-reader-soft-hover: rgba(255, 255, 255, 0.12);
+}
+
+/* Make the TOC sidebar follow reader theme colors. */
+#et-toc-sidebar {
+  background: var(--et-reader-bg);
+  color: var(--et-reader-fg);
+  border-color: var(--et-reader-panel-border);
+}
+
+#et-toc-sidebar .et-toc-header {
+  border-bottom-color: var(--et-reader-panel-border);
+}
+
+#et-toc-sidebar a.et-toc-active {
+  background: var(--et-reader-soft-hover);
+}
+
+#et-toc-sidebar .et-toc-resizer:hover {
+  background: var(--et-reader-soft-hover);
+}
+
+#et-toc-sidebar .et-toc-btn {
+  background: transparent;
+  color: inherit;
+  border: 1px solid var(--et-reader-panel-border);
+}
+
+#et-reader-settings {
+  box-sizing: border-box;
+  margin: 12px 12px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--et-reader-panel-border);
+  border-radius: 10px;
+  background: var(--et-reader-panel-bg);
+  color: inherit;
+  font-family: inherit;
+}
+
+#et-reader-settings[data-et-state="collapsed"] .et-setbox-body {
+  display: none;
+}
+
+#et-reader-settings .et-setbox-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+
+#et-reader-settings .et-setbox-title {
+  font-weight: 600;
+}
+
+#et-reader-settings .et-setbox-body {
+  margin-top: 10px;
+  display: grid;
+  gap: 10px;
+}
+
+#et-reader-settings .et-setting-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+#et-reader-settings .et-bg {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+#et-reader-settings .et-bg-item {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 0, 0, 0.20);
+  cursor: pointer;
+  padding: 0;
+}
+
+html[data-et-theme="night"] #et-reader-settings .et-bg-item,
+html[data-et-theme="solarized-night"] #et-reader-settings .et-bg-item {
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+#et-reader-settings .et-bg-item.et-active {
+  outline: 2px solid rgba(0, 0, 0, 0.45);
+  outline-offset: 2px;
+}
+
+html[data-et-theme="night"] #et-reader-settings .et-bg-item.et-active,
+html[data-et-theme="solarized-night"] #et-reader-settings .et-bg-item.et-active {
+  outline-color: rgba(255, 255, 255, 0.55);
+}
+
+#et-reader-settings .et-ctrl {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--et-reader-panel-border);
+  border-radius: 999px;
+  background: transparent;
+}
+
+#et-reader-settings .et-ctrl-btn {
+  font: inherit;
+  padding: 2px 10px;
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+#et-reader-settings .et-ctrl-display {
+  min-width: 72px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}

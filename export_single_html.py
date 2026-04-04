@@ -301,6 +301,9 @@ def export_container_to_single_html(container) -> str:
     pair_highlight = _import_sibling("et_pair_highlight")
     inject_et_pair_highlight = getattr(pair_highlight, "inject_et_pair_highlight")
 
+    reader_settings_mod = _import_sibling("et_reader_settings")
+    inject_et_reader_settings = getattr(reader_settings_mod, "inject_et_reader_settings")
+
     toc_sidebar_mod = _import_sibling("et_toc_sidebar")
     TOC_STYLE_ID = getattr(toc_sidebar_mod, "TOC_STYLE_ID")
     TOC_SCRIPT_ID = getattr(toc_sidebar_mod, "TOC_SCRIPT_ID")
@@ -415,4 +418,5 @@ def export_container_to_single_html(container) -> str:
         pass
 
     html_content = inject_et_pair_highlight(html_content)
+    html_content = inject_et_reader_settings(html_content)
     return html_content
