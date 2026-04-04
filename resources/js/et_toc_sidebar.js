@@ -143,31 +143,39 @@
             }
         }
 
-        // Overlay mode should happen on *mobile devices* (touch-first), not just when a desktop window is narrow.
-        // Otherwise desktop users can't resize and will see sidebar/content overlap.
-        var overlayMql = null;
-        try {
-            if (window.matchMedia) overlayMql = window.matchMedia('(hover: none) and (pointer: coarse)');
-        } catch (eMql) {
-            overlayMql = null;
-        }
-
-        var uaIsMobile = false;
-        try {
-            var ua = (navigator && navigator.userAgent) ? String(navigator.userAgent) : '';
-            uaIsMobile = /\b(Mobi|Android|iPhone|iPad|iPod)\b/i.test(ua);
-        } catch (eUA) {
-            uaIsMobile = false;
+        // Overlay mode should only apply to phone-like (narrow) *touch* screens.
+        // Do NOT apply it to narrow desktop windows, otherwise the sidebar will overlap content.
+        function isTouchLikeDevice() {
+            try {
+                if (window.matchMedia) {
+                    if (window.matchMedia('(pointer: coarse)').matches) return true;
+                    if (window.matchMedia('(hover: none)').matches) return true;
+                }
+            } catch (e0) {
+                // ignore
+            }
+            try {
+                if (navigator && typeof navigator.maxTouchPoints === 'number') {
+                    return navigator.maxTouchPoints > 0;
+                }
+            } catch (e1) {
+                // ignore
+            }
+            try {
+                return ('ontouchstart' in window);
+            } catch (e2) {
+                return false;
+            }
         }
 
         function isOverlayMode() {
-            if (uaIsMobile) return true;
+            var w = 0;
             try {
-                if (overlayMql) return !!overlayMql.matches;
-            } catch (eOM) {
-                // ignore
+                w = (window.innerWidth || 0);
+            } catch (eW) {
+                w = 0;
             }
-            return false;
+            return w <= 768 && isTouchLikeDevice();
         }
 
         var tocIndex = null; // [{ tocId, href, top }]
@@ -263,6 +271,14 @@
         }
 
         function scheduleActiveUpdate() {
+            // If the sidebar TOC is hidden (collapsed), there is nothing visible to sync.
+            // Skipping work here avoids scroll-jank on mobile.
+            try {
+                if (sidebar.getAttribute('data-et-toc-state') === 'collapsed') return;
+            } catch (e0) {
+                // ignore
+            }
+
             if (rafPending) return;
             rafPending = true;
             raf(function () {
@@ -661,7 +677,7 @@
 
         var initialState = savedState || sidebar.getAttribute('data-et-toc-state') || 'expanded';
         var initialCollapsed = (initialState === 'collapsed');
-        if (!savedState && isOverlayMode()) initialCollapsed = true;
+        if (!savedState && !initialCollapsed && isOverlayMode()) initialCollapsed = true;
         setCollapsed(initialCollapsed);
 
         if (highlightBtn) {
