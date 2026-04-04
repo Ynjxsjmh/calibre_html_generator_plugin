@@ -3,6 +3,7 @@
     'use strict';
 
     var PAIR_PREFIX = 'et-pair-';
+    var KEY_PAIR_HIGHLIGHT = 'et-pair-highlight-enabled';
     var ENABLE_SENTENCE_LEVEL = true;
     var LAYER_ID = 'et-hl-layer';
 
@@ -14,9 +15,27 @@
         // ignore
     }
 
+    function parseBool(raw) {
+        if (raw === null || raw === undefined) return null;
+        var s = String(raw).toLowerCase();
+        if (s === '1' || s === 'true' || s === 'yes' || s === 'on') return true;
+        if (s === '0' || s === 'false' || s === 'no' || s === 'off') return false;
+        return null;
+    }
+
     // Global highlight enable/disable flag
+    // - Can be set by `et_toc_sidebar.js` (and persisted in localStorage)
+    // - Fallback: read persisted preference, otherwise default to enabled
     if (window.etHighlightEnabled === undefined) {
-        window.etHighlightEnabled = true;
+        var savedEnabled = null;
+        try {
+            if (window.localStorage) {
+                savedEnabled = parseBool(window.localStorage.getItem(KEY_PAIR_HIGHLIGHT));
+            }
+        } catch (e0) {
+            savedEnabled = null;
+        }
+        window.etHighlightEnabled = (savedEnabled !== null) ? savedEnabled : true;
     }
 
     var elementCache = new WeakMap();
