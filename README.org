@@ -1,0 +1,38 @@
+
+* HTML Generator (Library toolbar plugin)
+
+This project is a calibre *main UI (library)* plugin that exports the currently selected book(s) in the library view into a single self-contained HTML file.
+
+It inlines:
+- Book CSS (as a single =<style>=)
+- TOC sidebar CSS/JS (from =resources/css= and =resources/js=)
+- Images (as =data:= URIs)
+
+And injects click-to-highlight logic for bilingual pairs tagged as =.et-src/.et-tr= with a shared =et-pair-xxx= class.
+
+* Build plugin ZIP
+
+Run:
+
+#+begin_src sh
+python build_plugin_zip.py
+#+end_src
+
+This will create:
+- =html_generator_plugin.zip=
+
+* Install in calibre
+
+1. Open calibre → Preferences → Plugins → *Load plugin from file*
+2. Select =html_generator_plugin.zip=
+3. Restart calibre if prompted
+
+* Use in calibre main window
+
+1. Select one or more books
+2. Run the action *Export single HTML*
+
+Depending on your toolbar configuration you may need to add it via:
+- Preferences → Toolbars & menus → The main toolbar
+
+Note: This plugin intentionally does not bundle heavy ML dependencies like =sentence-transformers/torch=. Sentence-level highlighting still works via the injected JS (heuristic mapping), and you can optionally pre-tag bilingual pairs via =lang= attributes.
