@@ -185,6 +185,18 @@
         var activeSidebarLink = null;
         var sidebarHrefMap = null; // { href: <a> }
         var rafPending = false;
+        var lastReadingAnchor = null;
+        var readingAnchorRafPending = false;
+        var readingAnchorTimer = 0;
+        var restoreRafPending = false;
+        var pendingRestoreAnchor = null;
+        var restoreGuardTimer = 0;
+        var isRestoringViewport = false;
+        var activeDragAnchor = null;
+        var resizeSessionAnchor = null;
+        var resizeSettleTimer = 0;
+        var overlaySessionAnchor = null;
+        var overlaySessionDirty = false;
 
         // Restore persisted state (do not write back during init).
         var savedSide = safeGet(KEY_TOC_SIDE);
@@ -229,6 +241,545 @@
         function raf(cb) {
             var fn = window.requestAnimationFrame || function (f) { return setTimeout(f, 16); };
             return fn(cb);
+        }
+
+        function clearTimer(timerId) {
+            if (!timerId) return 0;
+            try {
+                window.clearTimeout(timerId);
+            } catch (eT) {
+                // ignore
+            }
+            return 0;
+        }
+
+        function getScrollX() {
+            return window.scrollX || window.pageXOffset || 0;
+        }
+
+        function getScrollY() {
+            return window.scrollY || window.pageYOffset || 0;
+        }
+
+        function parsePx(v) {
+            var n = parseFloat(v || '0');
+            return isFinite(n) ? n : 0;
+        }
+
+        function isNodeConnected(node) {
+            if (!node) return false;
+            try {
+                if (node.isConnected) return true;
+            } catch (eNC0) {
+                // ignore
+            }
+            try {
+                return !!(document.documentElement && document.documentElement.contains(node));
+            } catch (eNC1) {
+                return false;
+            }
+        }
+
+        function isIgnoredAnchorElement(el) {
+            if (!el) return true;
+            try {
+                if (sidebar && sidebar.contains(el)) return true;
+            } catch (eIA0) {
+                // ignore
+            }
+            try {
+                var pos = window.getComputedStyle(el).position || '';
+                if (pos === 'fixed') return true;
+            } catch (eIA1) {
+                // ignore
+            }
+            return false;
+        }
+
+        function isIgnoredAnchorNode(node) {
+            if (!node) return true;
+            if (node.nodeType === 1) return isIgnoredAnchorElement(node);
+            return isIgnoredAnchorElement(node.parentElement || null);
+        }
+
+        function firstTextDescendant(root) {
+            if (!root || root.nodeType !== 1) return null;
+            try {
+                var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
+                return walker.nextNode();
+            } catch (eTW) {
+                return null;
+            }
+        }
+
+        function firstMeaningfulOffset(text) {
+            var s = text || '';
+            for (var i = 0; i < s.length; i++) {
+                if (!/\s/.test(s.charAt(i))) return i;
+            }
+            return 0;
+        }
+
+        function findTextNodeNearOffset(el, startIndex) {
+            if (!el || el.nodeType !== 1 || !el.childNodes) return null;
+            var total = el.childNodes.length;
+            if (!total) return null;
+
+            var idx = clamp(typeof startIndex === 'number' ? startIndex : 0, 0, total);
+            for (var dist = 0; dist <= total; dist++) {
+                var left = idx - dist;
+                if (left >= 0 && left < total) {
+                    var leftNode = el.childNodes[left];
+                    if (leftNode) {
+                        if (leftNode.nodeType === 3) return leftNode;
+                        var leftText = firstTextDescendant(leftNode);
+                        if (leftText) return leftText;
+                    }
+                }
+
+                var right = idx + dist;
+                if (dist && right >= 0 && right < total) {
+                    var rightNode = el.childNodes[right];
+                    if (rightNode) {
+                        if (rightNode.nodeType === 3) return rightNode;
+                        var rightText = firstTextDescendant(rightNode);
+                        if (rightText) return rightText;
+                    }
+                }
+            }
+
+            return firstTextDescendant(el);
+        }
+
+        function resolveTextPosition(node, offset) {
+            if (!node) return null;
+
+            if (node.nodeType === 3) {
+                var textLen = (node.nodeValue || '').length;
+                var nextOffset = typeof offset === 'number' ? offset : 0;
+                if (nextOffset < 0) nextOffset = 0;
+                if (nextOffset > textLen) nextOffset = textLen;
+                return { node: node, offset: nextOffset };
+            }
+
+            if (node.nodeType !== 1) return null;
+
+            var textNode = findTextNodeNearOffset(node, offset);
+            if (!textNode) return null;
+            return {
+                node: textNode,
+                offset: firstMeaningfulOffset(textNode.nodeValue || '')
+            };
+        }
+
+        function getCaretTextPositionAtPoint(x, y) {
+            var node = null;
+            var offset = 0;
+
+            try {
+                if (document.caretPositionFromPoint) {
+                    var pos = document.caretPositionFromPoint(x, y);
+                    if (pos) {
+                        node = pos.offsetNode;
+                        offset = pos.offset;
+                    }
+                } else if (document.caretRangeFromPoint) {
+                    var range = document.caretRangeFromPoint(x, y);
+                    if (range) {
+                        node = range.startContainer;
+                        offset = range.startOffset;
+                    }
+                }
+            } catch (eCP) {
+                node = null;
+            }
+
+            var resolved = resolveTextPosition(node, offset);
+            if (!resolved) return null;
+            if (isIgnoredAnchorNode(resolved.node)) return null;
+            return resolved;
+        }
+
+        function getReadingSampleXs() {
+            var width = Math.max(
+                window.innerWidth || 0,
+                document.documentElement ? (document.documentElement.clientWidth || 0) : 0
+            );
+            if (!width) return [24];
+
+            var minX = 12;
+            var maxX = Math.max(12, width - 12);
+
+            if (isOverlayMode() && !isCollapsed()) {
+                var overlaySide = sidebar.getAttribute('data-et-toc-side') || 'left';
+                var overlayWidth = getSidebarWidthPx();
+                var visibleLeft = minX;
+                var visibleRight = maxX;
+
+                if (overlaySide === 'right') {
+                    visibleRight = clamp(Math.round(width - overlayWidth - 12), minX, maxX);
+                } else {
+                    visibleLeft = clamp(Math.round(overlayWidth + 12), minX, maxX);
+                }
+
+                if (visibleRight - visibleLeft < 24) return [];
+
+                var overlayXs = [];
+                function pushOverlayX(val) {
+                    for (var oi = 0; oi < overlayXs.length; oi++) {
+                        if (Math.abs(overlayXs[oi] - val) < 2) return;
+                    }
+                    overlayXs.push(val);
+                }
+
+                pushOverlayX(clamp(Math.round(visibleLeft + 12), visibleLeft, visibleRight));
+                pushOverlayX(clamp(Math.round(visibleLeft + 56), visibleLeft, visibleRight));
+                pushOverlayX(clamp(Math.round((visibleLeft + visibleRight) / 2), visibleLeft, visibleRight));
+                pushOverlayX(clamp(Math.round(visibleRight - 20), visibleLeft, visibleRight));
+                return overlayXs;
+            }
+
+            var bodyPL = 0;
+            var bodyPR = 0;
+            try {
+                var bodyCS = window.getComputedStyle(document.body);
+                bodyPL = parsePx(bodyCS.paddingLeft);
+                bodyPR = parsePx(bodyCS.paddingRight);
+            } catch (eGX) {
+                bodyPL = 0;
+                bodyPR = 0;
+            }
+
+            var left = clamp(Math.round(bodyPL + 24), minX, maxX);
+            var leftWide = clamp(Math.round(bodyPL + 88), minX, maxX);
+            var right = clamp(Math.round(width - bodyPR - 24), minX, maxX);
+            var center = clamp(Math.round((left + right) / 2), minX, maxX);
+
+            var xs = [];
+            function pushX(val) {
+                for (var i = 0; i < xs.length; i++) {
+                    if (Math.abs(xs[i] - val) < 2) return;
+                }
+                xs.push(val);
+            }
+
+            pushX(left);
+            pushX(leftWide);
+            pushX(center);
+            pushX(right);
+            return xs;
+        }
+
+        function getReadingSampleYs() {
+            var viewportH = Math.max(
+                window.innerHeight || 0,
+                document.documentElement ? (document.documentElement.clientHeight || 0) : 0
+            );
+            var ys = [8, 14, 22, 32, 44, 60, 78, 98];
+            var out = [];
+            for (var i = 0; i < ys.length; i++) {
+                if (viewportH && ys[i] > viewportH - 8) continue;
+                out.push(ys[i]);
+            }
+            return out.length ? out : [8];
+        }
+
+        function buildScrollFallbackAnchor(viewportY) {
+            return {
+                node: null,
+                offset: 0,
+                element: null,
+                viewportY: typeof viewportY === 'number' ? viewportY : 0,
+                scrollX: getScrollX(),
+                scrollY: getScrollY(),
+                isScrollFallback: true
+            };
+        }
+
+        function buildReadingAnchor(node, offset, element, viewportY) {
+            if (!node && !element) return null;
+            var anchorElement = element || (node ? (node.nodeType === 1 ? node : node.parentElement) : null);
+            if (anchorElement && isIgnoredAnchorElement(anchorElement)) return null;
+            return {
+                node: node || null,
+                offset: typeof offset === 'number' ? offset : 0,
+                element: anchorElement || null,
+                viewportY: viewportY,
+                scrollX: getScrollX(),
+                scrollY: getScrollY(),
+                isScrollFallback: false
+            };
+        }
+
+        function captureVisibleHashTargetAnchor() {
+            var h = location.hash || '';
+            if (!h || h.charAt(0) !== '#') return null;
+            if (h.indexOf('#toc_') === 0) return null;
+
+            var target = document.getElementById(h.slice(1));
+            if (!target || isIgnoredAnchorElement(target)) return null;
+
+            var rect = null;
+            try {
+                rect = target.getBoundingClientRect();
+            } catch (eHT0) {
+                rect = null;
+            }
+            if (!rect) return null;
+
+            var viewportH = Math.max(
+                window.innerHeight || 0,
+                document.documentElement ? (document.documentElement.clientHeight || 0) : 0
+            );
+            if (rect.bottom < -4) return null;
+            if (viewportH && rect.top > viewportH * 0.65) return null;
+
+            var viewportY = rect.top;
+            if (!isFinite(viewportY)) viewportY = 0;
+            if (viewportY < 0) viewportY = 0;
+            if (viewportH && viewportY > viewportH - 8) viewportY = Math.max(0, viewportH - 8);
+
+            return buildReadingAnchor(null, 0, target, viewportY);
+        }
+
+        function captureReadingAnchor() {
+            if (!document.body) return null;
+
+            var xs = getReadingSampleXs();
+            var ys = getReadingSampleYs();
+            if (!xs.length) return buildScrollFallbackAnchor(ys.length ? ys[0] : 0);
+
+            for (var i = 0; i < ys.length; i++) {
+                for (var j = 0; j < xs.length; j++) {
+                    var x = xs[j];
+                    var y = ys[i];
+                    var pos = getCaretTextPositionAtPoint(x, y);
+                    if (pos) {
+                        return buildReadingAnchor(pos.node, pos.offset, pos.node.parentElement || null, y);
+                    }
+
+                    var el = null;
+                    try {
+                        el = document.elementFromPoint(x, y);
+                    } catch (eEF) {
+                        el = null;
+                    }
+                    if (!el || isIgnoredAnchorElement(el)) continue;
+                    if (el === document.documentElement || el === document.body) continue;
+
+                    var textNode = firstTextDescendant(el);
+                    if (textNode) {
+                        return buildReadingAnchor(
+                            textNode,
+                            firstMeaningfulOffset(textNode.nodeValue || ''),
+                            el,
+                            y
+                        );
+                    }
+                    return buildReadingAnchor(null, 0, el, y);
+                }
+            }
+
+            return buildScrollFallbackAnchor(ys.length ? ys[0] : 0);
+        }
+
+        function createTextRange(anchor) {
+            if (!anchor || !anchor.node || !isNodeConnected(anchor.node)) return null;
+
+            var text = anchor.node.nodeValue || '';
+            var len = text.length;
+            var start = typeof anchor.offset === 'number' ? anchor.offset : 0;
+            if (start < 0) start = 0;
+            if (start > len) start = len;
+
+            var range = document.createRange();
+            if (!len) {
+                range.setStart(anchor.node, 0);
+                range.setEnd(anchor.node, 0);
+                return range;
+            }
+
+            if (start >= len) {
+                range.setStart(anchor.node, len - 1);
+                range.setEnd(anchor.node, len);
+                return range;
+            }
+
+            range.setStart(anchor.node, start);
+            range.setEnd(anchor.node, Math.min(start + 1, len));
+            return range;
+        }
+
+        function getRectFromRange(range) {
+            if (!range) return null;
+            try {
+                var rects = range.getClientRects();
+                if (rects && rects.length) return rects[0];
+            } catch (eGR0) {
+                // ignore
+            }
+            try {
+                var rect = range.getBoundingClientRect();
+                if (rect && (rect.height || rect.width || rect.top || rect.bottom)) return rect;
+            } catch (eGR1) {
+                // ignore
+            }
+            return null;
+        }
+
+        function getAnchorRect(anchor) {
+            if (!anchor) return null;
+
+            var rect = null;
+            try {
+                rect = getRectFromRange(createTextRange(anchor));
+            } catch (eAR0) {
+                rect = null;
+            }
+            if (rect) return rect;
+
+            var el = anchor.element;
+            if ((!el || !isNodeConnected(el)) && anchor.node) {
+                el = anchor.node.parentElement || null;
+            }
+            if (!el || !isNodeConnected(el) || isIgnoredAnchorElement(el)) return null;
+            try {
+                return el.getBoundingClientRect();
+            } catch (eAR1) {
+                return null;
+            }
+        }
+
+        function beginRestoreGuard() {
+            isRestoringViewport = true;
+            readingAnchorTimer = clearTimer(readingAnchorTimer);
+            restoreGuardTimer = clearTimer(restoreGuardTimer);
+            try {
+                restoreGuardTimer = window.setTimeout(function () {
+                    isRestoringViewport = false;
+                    restoreGuardTimer = 0;
+                }, 120);
+            } catch (eRG) {
+                isRestoringViewport = false;
+            }
+        }
+
+        function restoreReadingAnchor(anchor) {
+            if (!anchor) return false;
+
+            var rect = getAnchorRect(anchor);
+            if (!rect) {
+                var fallbackX = isFinite(anchor.scrollX) ? anchor.scrollX : getScrollX();
+                var fallbackY = isFinite(anchor.scrollY) ? anchor.scrollY : getScrollY();
+                if (fallbackY < 0) fallbackY = 0;
+
+                beginRestoreGuard();
+                try {
+                    window.scrollTo({ left: fallbackX, top: fallbackY, behavior: 'auto' });
+                    return true;
+                } catch (eRF0) {
+                    try {
+                        window.scrollTo(fallbackX, fallbackY);
+                        return true;
+                    } catch (eRF1) {
+                        return false;
+                    }
+                }
+            }
+
+            var top = rect.top;
+            var targetY = typeof anchor.viewportY === 'number' ? anchor.viewportY : 0;
+            if (!isFinite(top) || !isFinite(targetY)) return false;
+
+            var delta = top - targetY;
+            if (!isFinite(delta) || Math.abs(delta) < 1) return true;
+
+            var nextY = getScrollY() + delta;
+            if (nextY < 0) nextY = 0;
+
+            beginRestoreGuard();
+            try {
+                window.scrollTo({ left: getScrollX(), top: nextY, behavior: 'auto' });
+                return true;
+            } catch (eRS0) {
+                try {
+                    window.scrollTo(getScrollX(), nextY);
+                    return true;
+                } catch (eRS1) {
+                    return false;
+                }
+            }
+        }
+
+        function scheduleBaselineAnchorCapture() {
+            if (readingAnchorRafPending || isRestoringViewport) return;
+            readingAnchorRafPending = true;
+            raf(function () {
+                readingAnchorRafPending = false;
+                if (isRestoringViewport) return;
+                var anchor = captureReadingAnchor();
+                if (anchor) lastReadingAnchor = anchor;
+            });
+        }
+
+        function scheduleDelayedBaselineAnchorCapture(delay) {
+            readingAnchorTimer = clearTimer(readingAnchorTimer);
+            try {
+                readingAnchorTimer = window.setTimeout(function () {
+                    readingAnchorTimer = 0;
+                    scheduleBaselineAnchorCapture();
+                }, delay || 0);
+            } catch (eRC) {
+                scheduleBaselineAnchorCapture();
+            }
+        }
+
+        function scheduleReadingAnchorRestore(anchor) {
+            if (!anchor) return;
+            pendingRestoreAnchor = anchor;
+            if (restoreRafPending) return;
+            restoreRafPending = true;
+            raf(function () {
+                restoreRafPending = false;
+                var nextAnchor = pendingRestoreAnchor;
+                pendingRestoreAnchor = null;
+                if (!nextAnchor) return;
+                if (restoreReadingAnchor(nextAnchor)) {
+                    scheduleDelayedBaselineAnchorCapture(140);
+                }
+            });
+        }
+
+        function startOverlaySession(anchor) {
+            overlaySessionAnchor = anchor || null;
+            overlaySessionDirty = false;
+        }
+
+        function markOverlaySessionDirty() {
+            if (!overlaySessionAnchor) return;
+            overlaySessionDirty = true;
+        }
+
+        function clearOverlaySession() {
+            overlaySessionAnchor = null;
+            overlaySessionDirty = false;
+        }
+
+        function runWithPreservedReadingPosition(action, preferredAnchor) {
+            if (typeof action !== 'function') return;
+
+            var anchor = preferredAnchor || null;
+            if (!anchor && isOverlayMode() && !isCollapsed()) {
+                anchor = captureVisibleHashTargetAnchor();
+            }
+            if (!anchor) anchor = captureReadingAnchor() || lastReadingAnchor;
+            action();
+
+            if (anchor) {
+                scheduleReadingAnchorRestore(anchor);
+            } else {
+                scheduleDelayedBaselineAnchorCapture(0);
+            }
         }
 
         function markTocDirty() {
@@ -408,6 +959,7 @@
                 var startX = e.clientX;
                 var startWidth = getSidebarWidthPx();
                 var side = sidebar.getAttribute('data-et-toc-side') || 'left';
+                activeDragAnchor = captureReadingAnchor() || lastReadingAnchor;
 
                 var prevUserSelect = '';
                 var prevCursor = '';
@@ -432,6 +984,7 @@
 
                     setSidebarWidthPx(next);
                     applyBodyOffset();
+                    if (activeDragAnchor) scheduleReadingAnchorRestore(activeDragAnchor);
                 }
 
                 function onUp() {
@@ -448,9 +1001,13 @@
                         // ignore
                     }
 
+                    if (activeDragAnchor) scheduleReadingAnchorRestore(activeDragAnchor);
+                    activeDragAnchor = null;
+
                     // Resizing can cause reflow (line wrap) so rebuild index once after drag.
                     markTocDirty();
                     scheduleActiveUpdate();
+                    scheduleDelayedBaselineAnchorCapture(0);
 
                     // Persist width after the user finishes dragging.
                     safeSet(KEY_TOC_WIDTH, getSidebarWidthPx());
@@ -617,15 +1174,38 @@
         if (collapseBtn) {
             collapseBtn.addEventListener('click', function () {
                 var collapsed = sidebar.getAttribute('data-et-toc-state') === 'collapsed';
-                setCollapsed(!collapsed);
-                safeSet(KEY_TOC_STATE, sidebar.getAttribute('data-et-toc-state') || (!collapsed ? 'collapsed' : 'expanded'));
+                var overlayMode = isOverlayMode();
+                var anchor = null;
+
+                if (overlayMode) {
+                    if (collapsed) {
+                        anchor = captureReadingAnchor() || lastReadingAnchor;
+                        startOverlaySession(buildScrollFallbackAnchor(0));
+                    } else {
+                        anchor = (!overlaySessionDirty && overlaySessionAnchor)
+                            ? overlaySessionAnchor
+                            : (captureVisibleHashTargetAnchor() || captureReadingAnchor() || lastReadingAnchor);
+                    }
+                }
+
+                runWithPreservedReadingPosition(function () {
+                    setCollapsed(!collapsed);
+                    safeSet(KEY_TOC_STATE, sidebar.getAttribute('data-et-toc-state') || (!collapsed ? 'collapsed' : 'expanded'));
+                }, anchor);
+
+                if (overlayMode && !collapsed) {
+                    clearOverlaySession();
+                }
             });
         }
         if (sideBtn) {
             sideBtn.addEventListener('click', function () {
                 var side = sidebar.getAttribute('data-et-toc-side') || 'left';
-                setSide(side === 'right' ? 'left' : 'right');
-                safeSet(KEY_TOC_SIDE, sidebar.getAttribute('data-et-toc-side') || (side === 'right' ? 'left' : 'right'));
+                if (isOverlayMode() && !isCollapsed()) markOverlaySessionDirty();
+                runWithPreservedReadingPosition(function () {
+                    setSide(side === 'right' ? 'left' : 'right');
+                    safeSet(KEY_TOC_SIDE, sidebar.getAttribute('data-et-toc-side') || (side === 'right' ? 'left' : 'right'));
+                });
             });
         }
         if (highlightBtn) {
@@ -649,6 +1229,8 @@
                 // Sync sidebar highlight without changing layout (avoid reflow that may interfere with anchor jumps).
                 focusByTocId(h.slice(1));
             }
+            if (!isRestoringViewport && isOverlayMode() && !isCollapsed()) markOverlaySessionDirty();
+            scheduleDelayedBaselineAnchorCapture(60);
         }
         window.addEventListener('hashchange', onHash);
 
@@ -661,9 +1243,40 @@
         }
 
         // Keep the active TOC item in sync with reading position.
-        addWindowListener('scroll', scheduleActiveUpdate);
-        addWindowListener('resize', function () { basePaddingDirty = true; markTocDirty(); applyBodyOffset(); scheduleActiveUpdate(); });
-        addWindowListener('load', function () { basePaddingDirty = true; markTocDirty(); applyBodyOffset(); scheduleActiveUpdate(); });
+        addWindowListener('scroll', function () {
+            if (!isRestoringViewport && isOverlayMode() && !isCollapsed()) markOverlaySessionDirty();
+            scheduleActiveUpdate();
+            scheduleBaselineAnchorCapture();
+        });
+        addWindowListener('resize', function () {
+            if (!isRestoringViewport && isOverlayMode() && !isCollapsed()) markOverlaySessionDirty();
+            basePaddingDirty = true;
+            markTocDirty();
+            if (!resizeSessionAnchor) {
+                resizeSessionAnchor = lastReadingAnchor || captureReadingAnchor();
+            }
+            applyBodyOffset();
+            if (resizeSessionAnchor) scheduleReadingAnchorRestore(resizeSessionAnchor);
+            scheduleActiveUpdate();
+            resizeSettleTimer = clearTimer(resizeSettleTimer);
+            try {
+                resizeSettleTimer = window.setTimeout(function () {
+                    resizeSessionAnchor = null;
+                    resizeSettleTimer = 0;
+                    scheduleDelayedBaselineAnchorCapture(0);
+                }, 140);
+            } catch (eRZ) {
+                resizeSessionAnchor = null;
+                scheduleBaselineAnchorCapture();
+            }
+        });
+        addWindowListener('load', function () {
+            basePaddingDirty = true;
+            markTocDirty();
+            applyBodyOffset();
+            scheduleActiveUpdate();
+            scheduleDelayedBaselineAnchorCapture(0);
+        });
 
         // Init
         if (savedWidth != null && isFinite(savedWidth)) {
@@ -691,5 +1304,6 @@
         onHash();
         // Initial highlight.
         scheduleActiveUpdate();
+        scheduleDelayedBaselineAnchorCapture(0);
     });
 })();
