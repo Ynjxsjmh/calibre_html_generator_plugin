@@ -23,13 +23,16 @@ html, body {
   background: transparent !important;
 }
 
-html[data-et-reader-override="1"] body {
+html[data-et-reader-override="1"] #et-reader,
+html[data-et-reader-override="1"] .et-epub-body {
   font-size: var(--et-reader-font-size) !important;
   line-height: var(--et-reader-line-height) !important;
 }
 
-html[data-et-reader-override="1"] p,
-html[data-et-reader-override="1"] li {
+html[data-et-reader-override="1"] #et-reader p,
+html[data-et-reader-override="1"] #et-reader li,
+html[data-et-reader-override="1"] .et-epub-body p,
+html[data-et-reader-override="1"] .et-epub-body li {
   line-height: var(--et-reader-line-height) !important;
 }
 
@@ -129,14 +132,27 @@ html[data-et-theme="solarized-night"] {
 }
 
 #et-reader-settings {
+  --et-reader-ui-font-size: 13px;
+  --et-reader-ui-line-height: 1.35;
+  --et-reader-ui-control-size: 24px;
+  --et-reader-ui-control-gap: 3px;
+  --et-reader-ui-display-width: 54px;
   box-sizing: border-box;
   margin: 12px 12px 0;
-  padding: 10px 12px;
+  padding: 8px 10px;
   border: 1px solid var(--et-reader-panel-border);
   border-radius: 10px;
   background: var(--et-reader-panel-bg);
   color: inherit;
   font-family: inherit;
+  font-size: var(--et-reader-ui-font-size);
+  line-height: var(--et-reader-ui-line-height);
+}
+
+@media (pointer: coarse) {
+  #et-reader-settings {
+    --et-reader-ui-control-size: 28px;
+  }
 }
 
 #et-reader-settings[data-et-state="collapsed"] .et-setbox-body {
@@ -147,36 +163,37 @@ html[data-et-theme="solarized-night"] {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 10px;
+  gap: 6px;
   cursor: pointer;
 }
 
 #et-reader-settings .et-setbox-title {
+  font-size: 14px;
   font-weight: 600;
 }
 
 #et-reader-settings .et-setbox-body {
-  margin-top: 10px;
+  margin-top: 6px;
   display: grid;
-  gap: 10px;
+  gap: 6px;
 }
 
 #et-reader-settings .et-setting-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
 }
 
 #et-reader-settings .et-bg {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
 }
 
 #et-reader-settings .et-bg-item {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   border-radius: 999px;
   border: 1px solid rgba(0, 0, 0, 0.20);
   cursor: pointer;
@@ -201,25 +218,40 @@ html[data-et-theme="solarized-night"] #et-reader-settings .et-bg-item.et-active 
 #et-reader-settings .et-ctrl {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
+  gap: var(--et-reader-ui-control-gap);
+  padding: 3px;
   border: 1px solid var(--et-reader-panel-border);
   border-radius: 999px;
   background: transparent;
+  font-size: 12px;
 }
 
 #et-reader-settings .et-ctrl-btn {
   font: inherit;
-  padding: 2px 10px;
+  font-weight: 600;
+  line-height: 1;
+  width: var(--et-reader-ui-control-size);
+  height: var(--et-reader-ui-control-size);
+  padding: 0;
   cursor: pointer;
   border: 0;
+  border-radius: 999px;
   background: transparent;
   appearance: none;
   -webkit-appearance: none;
 }
 
+#et-reader-settings .et-ctrl-btn:hover {
+  background: var(--et-reader-soft-hover);
+}
+
+#et-reader-settings .et-ctrl-btn:focus {
+  outline: 2px solid var(--et-reader-panel-border);
+  outline-offset: 1px;
+}
+
 #et-reader-settings .et-ctrl-display {
-  min-width: 72px;
+  min-width: var(--et-reader-ui-display-width);
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
